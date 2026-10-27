@@ -12,9 +12,9 @@ python3 chrM_block_align.py \
   --fasta-dir data/unrot_fasta \
   --annotation-summary data/mitos2_species_summary.tsv \
   --trnascan-csv data/consolidated_trnascan-2.csv \
-  --human-fasta data/human_chrM_16569.fa \
+  --human-fasta data/Humans_mtdna.fasta \
   --output-dir block_results_v6 \
   --ranks class \
   --threads "${SLURM_CPUS_PER_TASK}" \
   --keep-intermediate
-python3 validate_alignment.py --rank-dir block_results_v6/class --human-fasta data/human_chrM_16569.fa
+python3 validate_alignment.py --rank-dir block_results_v6/class --human-fasta data/Humans_mtdna.fasta
