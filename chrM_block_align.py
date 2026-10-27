@@ -102,70 +102,6 @@ def pick_features(items,L):
     return selected,ambiguous
 def circular(seq,a,b):
     return "".join(seq[i%len(seq)] for i in range(a,b))
-def lift_human(old,new,features,mafft="mafft",threads=1):
-    """Map MITOS2 human (often 16565 bp) onto canonical 16569 bp chrM.
-
-    Locate an exact, unique 60-mer to normalize the circular origin, then
-    align both linearized copies with MAFFT. Reject unrelated sequences,
-    non-monotonic mappings, and indels intersecting annotated genes.
-    """
-    if old==new:return features
-    import tempfile
-    n=len(new);m=len(old)
-    anchors=[]
-    doubled=new+new
-    for i in range(0,min(m-60,1500)+1,30):
-        seed=old[i:i+60]
-        if len(seed)!=60 or "N" in seed:continue
-        found=new.find(seed)
-        if found>=0 and new.find(seed,found+1)==-1:
-            anchors.append((found-i)%n)
-    if not anchors:
-        raise ValueError("Human liftover: no unique matching 60-mer; verify FASTA identity/orientation")
-    offset,count=collections.Counter(anchors).most_common(1)[0]
-    if count < min(3,len(anchors)) or count < .7*len(anchors):
-        raise ValueError("Human liftover: inconsistent circular anchor offsets "+repr(collections.Counter(anchors).most_common(5)))
-    rotated=new[offset:]+new[:offset]
-    with tempfile.TemporaryDirectory(prefix="human_liftover_") as tmp:
-        folder=Path(tmp);src=folder/"pair.fa";dst=folder/"pair.aln.fa"
-        save_fasta(src,[("source",old),("canonical",rotated)])
-        cmd=[mafft,"--globalpair","--maxiterate","0","--thread",str(min(threads,2)),str(src)]
-        with open(dst,"w") as fp:
-            p=subprocess.run(cmd,stdout=fp,stderr=subprocess.PIPE,text=True)
-        if p.returncode:
-            raise RuntimeError("MAFFT human liftover failed: "+p.stderr[-1200:])
-        aln=dict(fasta(dst))
-    if set(aln)!={"source","canonical"}:
-        raise ValueError("Human liftover MAFFT returned unexpected headers")
-    a,b=aln["source"],aln["canonical"]
-    if len(a)!=len(b):raise ValueError("Human liftover alignment unequal length")
-    mapping={};i=j=0;matches=0;both=0
-    for x,y in zip(a,b):
-        if x!="-" and y!="-":
-            mapping[i]=(j+offset)%n
-            both+=1
-            if x==y:matches+=1
-        if x!="-":i+=1
-        if y!="-":j+=1
-    identity=matches/max(both,1)
-    coverage=len(mapping)/m
-    LOG.info("Human liftover: old=%d new=%d rotation=%d mapped=%d/%d identity=%.5f",
-             m,n,offset,len(mapping),m,identity)
-    if i!=m or j!=n or coverage<.99 or identity<.99:
-        raise ValueError(f"Human liftover not confident: coverage={coverage:.4%}, identity={identity:.4%}; check human FASTA")
-    output={}
-    for name,f in features.items():
-        coords=[mapping.get(i%m) for i in range(f.start,f.end)]
-        if any(x is None for x in coords):
-            raise ValueError("Human gene has an indel/unmapped base: "+name)
-        unwrapped=[coords[0]]
-        for x in coords[1:]:
-            while x<unwrapped[-1]:x+=n
-            unwrapped.append(x)
-        if unwrapped[-1]-unwrapped[0] != len(coords)-1:
-            raise ValueError("Human gene includes an indel; inspect coordinates for "+name)
-        output[name]=Feature(name,unwrapped[0],unwrapped[-1]+1,f.strand)
-    return output
 
 def align(records,folder,name,threads,mafft):
     if not records:return {}
@@ -200,9 +136,25 @@ def run(rank,fa,gffs,trnas,args):
         features,amb=pick_features(all_features,len(seq))
         for gene,count in amb.items():ambiguous_rows.append((name,gene,count))
         if key=="homosapiens":
+            if len(seq)!=16569:
+                raise ValueError(f"Human rank FASTA is {len(seq)} bp, expected 16569. Replace the Homo sapiens record in this rank FASTA; no 16565-bp liftover is performed.")
+            if seq!=human:
+                raise ValueError("Human rank FASTA differs from --human-fasta. Use the same 16569-bp reference sequence in both.")
             if set(features)!=EXPECTED or amb:
                 raise ValueError("Human gene set not unique: "+repr(sorted(EXPECTED-set(features)))+" "+repr(amb))
-            features=lift_human(seq,human,features,args.mafft,args.threads);seq=human
+            # Annotations must be generated for this exact 16569-bp sequence.
+            region_lengths=set()
+            with open(path) as gff_in:
+                for line in gff_in:
+                    p=line.rstrip("\n").split("\t")
+                    if len(p)>=5 and p[2].lower()=="region":
+                        try:region_lengths.add(int(p[4])-int(p[3])+1)
+                        except ValueError:pass
+            if region_lengths and region_lengths!={16569}:
+                raise ValueError(f"Human MITOS2 GFF region length {sorted(region_lengths)} != 16569; supply the 16569-bp human GFF.")
+            for f in features.values():
+                if f.end>16569:
+                    raise ValueError(f"Human annotation exceeds 16569 bp: {f.gene} {f.start+1}-{f.end}")
         samples[key]=(name,seq,features)
     if "homosapiens" not in samples:raise ValueError("Homo sapiens not found")
     keys=["homosapiens"]+[key for key in samples if key!="homosapiens"]
