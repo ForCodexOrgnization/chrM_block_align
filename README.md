@@ -41,7 +41,13 @@ python3 validate_alignment.py --rank-dir block_results_v6/class --human-fasta da
 ## Important caveats
 
 - A missing or ambiguous ortholog is represented as a gap (unavailable) rather than treated as a substitution.
-- Intergenic blocks with rearranged neighbors are not assumed homologous; memory guard limits large flank MSAs.
+- Intergenic blocks with rearranged neighbors are not assumed homologous. Candidate flanks are added in MAFFT batches (default 100); unusually long non-human flanks (>2500 bp by default) are excluded individually and counted in `intergenic_qc.tsv`. Existing gene alignments are reused when the cached sample IDs and ungapped sequences match exactly.
 - Separate gene alignments preserve the complete overlap, but the final chrM projection chooses one aligned result per human nucleotide. It records overlap conflicts and does not automatically validate orthology in ambiguous duplications.
 - The Homo sapiens sequence in every rank FASTA, the --human-fasta sequence, MITOS2 GFF, and tRNAscan coordinates must all refer to the same exact 16,569-bp human reference. No liftover from 16,565 bp is performed. The script checks FASTA identity and GFF region length; tRNAscan coordinates must be independently verified.
 - Review generated QC and validate on real McCleary data before computing CI. This is research code, not a clinically validated pipeline.
+
+## Re-running after v6 intergenic update
+
+Run the same `sbatch run_class.slurm` command with `--keep-intermediate` enabled (already present in the sample SLURM script). Complete cached `*.aln.fa` files are validated and reused; intergenic blocks previously saved with human-only results are regenerated when their expected sequence membership differs. Check `intergenic_qc.tsv` and `block_summary.tsv`. The intended human reference file for the current dataset is `data/Humans_mtdna.fasta`.
+
+The former `--max-flank-sequences` threshold is no longer used to skip intergenic MSAs; `--flank-batch-size` (default 100) controls progressive addition.
