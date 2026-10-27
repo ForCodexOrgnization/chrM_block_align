@@ -117,9 +117,23 @@ def align(records,folder,name,threads,mafft):
         raise ValueError("Invalid MAFFT output "+name)
     return rows
 def write_tsv(path,rows,columns):
-    with open(path,"w",newline="") as inp:
-        w=csv.DictWriter(inp,delimiter="\t",fieldnames=columns)
-        w.writeheader();w.writerows(rows)
+    """Write TSV rows represented as tuples/lists, or dictionaries."""
+    with open(path,"w",newline="") as out:
+        rows=iter(rows)
+        first=next(rows,None)
+        if first is None:
+            writer=csv.writer(out,delimiter="\t")
+            writer.writerow(columns)
+            return
+        if isinstance(first,dict):
+            writer=csv.DictWriter(out,delimiter="\t",fieldnames=columns)
+            writer.writeheader()
+            writer.writerow(first)
+        else:
+            writer=csv.writer(out,delimiter="\t")
+            writer.writerow(columns)
+            writer.writerow(first)
+        writer.writerows(rows)
 def run(rank,fa,gffs,trnas,args):
     out=Path(args.output_dir)/rank;out.mkdir(parents=True,exist_ok=True)
     intermediate=out/"gene_alignments";intermediate.mkdir(exist_ok=True)
