@@ -102,28 +102,71 @@ def pick_features(items,L):
     return selected,ambiguous
 def circular(seq,a,b):
     return "".join(seq[i%len(seq)] for i in range(a,b))
-def lift_human(old,new,features):
+def lift_human(old,new,features,mafft="mafft",threads=1):
+    """Map MITOS2 human (often 16565 bp) onto canonical 16569 bp chrM.
+
+    Locate an exact, unique 60-mer to normalize the circular origin, then
+    align both linearized copies with MAFFT. Reject unrelated sequences,
+    non-monotonic mappings, and indels intersecting annotated genes.
+    """
     if old==new:return features
-    import difflib
-    matches=difflib.SequenceMatcher(None,old,new,autojunk=False)
-    mapping={}
-    for typ,a,b,c,d in matches.get_opcodes():
-        if typ=="equal":
-            for k in range(b-a):mapping[a+k]=c+k
-    if len(mapping)<.99*len(old):raise ValueError("Human reference liftover not confident")
+    import tempfile
+    n=len(new);m=len(old)
+    anchors=[]
+    doubled=new+new
+    for i in range(0,min(m-60,1500)+1,30):
+        seed=old[i:i+60]
+        if len(seed)!=60 or "N" in seed:continue
+        found=new.find(seed)
+        if found>=0 and new.find(seed,found+1)==-1:
+            anchors.append((found-i)%n)
+    if not anchors:
+        raise ValueError("Human liftover: no unique matching 60-mer; verify FASTA identity/orientation")
+    offset,count=collections.Counter(anchors).most_common(1)[0]
+    if count < min(3,len(anchors)) or count < .7*len(anchors):
+        raise ValueError("Human liftover: inconsistent circular anchor offsets "+repr(collections.Counter(anchors).most_common(5)))
+    rotated=new[offset:]+new[:offset]
+    with tempfile.TemporaryDirectory(prefix="human_liftover_") as tmp:
+        folder=Path(tmp);src=folder/"pair.fa";dst=folder/"pair.aln.fa"
+        save_fasta(src,[("source",old),("canonical",rotated)])
+        cmd=[mafft,"--globalpair","--maxiterate","0","--thread",str(min(threads,2)),str(src)]
+        with open(dst,"w") as fp:
+            p=subprocess.run(cmd,stdout=fp,stderr=subprocess.PIPE,text=True)
+        if p.returncode:
+            raise RuntimeError("MAFFT human liftover failed: "+p.stderr[-1200:])
+        aln=dict(fasta(dst))
+    if set(aln)!={"source","canonical"}:
+        raise ValueError("Human liftover MAFFT returned unexpected headers")
+    a,b=aln["source"],aln["canonical"]
+    if len(a)!=len(b):raise ValueError("Human liftover alignment unequal length")
+    mapping={};i=j=0;matches=0;both=0
+    for x,y in zip(a,b):
+        if x!="-" and y!="-":
+            mapping[i]=(j+offset)%n
+            both+=1
+            if x==y:matches+=1
+        if x!="-":i+=1
+        if y!="-":j+=1
+    identity=matches/max(both,1)
+    coverage=len(mapping)/m
+    LOG.info("Human liftover: old=%d new=%d rotation=%d mapped=%d/%d identity=%.5f",
+             m,n,offset,len(mapping),m,identity)
+    if i!=m or j!=n or coverage<.99 or identity<.99:
+        raise ValueError(f"Human liftover not confident: coverage={coverage:.4%}, identity={identity:.4%}; check human FASTA")
     output={}
     for name,f in features.items():
-        coords=[mapping.get(i%len(old)) for i in range(f.start,f.end)]
-        if any(x is None for x in coords):raise ValueError("Human gene has unmapped reference bases: "+name)
-        # Feature position order must be conserved.
-        expanded=[coords[0]]
+        coords=[mapping.get(i%m) for i in range(f.start,f.end)]
+        if any(x is None for x in coords):
+            raise ValueError("Human gene has an indel/unmapped base: "+name)
+        unwrapped=[coords[0]]
         for x in coords[1:]:
-            while x<expanded[-1]:x+=len(new)
-            expanded.append(x)
-        if expanded[-1]-expanded[0] != len(coords)-1:
-            raise ValueError("Human gene crosses an insertion/deletion; liftover requires manual review: "+name)
-        output[name]=Feature(name,expanded[0],expanded[-1]+1,f.strand)
+            while x<unwrapped[-1]:x+=n
+            unwrapped.append(x)
+        if unwrapped[-1]-unwrapped[0] != len(coords)-1:
+            raise ValueError("Human gene includes an indel; inspect coordinates for "+name)
+        output[name]=Feature(name,unwrapped[0],unwrapped[-1]+1,f.strand)
     return output
+
 def align(records,folder,name,threads,mafft):
     if not records:return {}
     if len(records)==1:return dict(records)
@@ -159,7 +202,7 @@ def run(rank,fa,gffs,trnas,args):
         if key=="homosapiens":
             if set(features)!=EXPECTED or amb:
                 raise ValueError("Human gene set not unique: "+repr(sorted(EXPECTED-set(features)))+" "+repr(amb))
-            features=lift_human(seq,human,features);seq=human
+            features=lift_human(seq,human,features,args.mafft,args.threads);seq=human
         samples[key]=(name,seq,features)
     if "homosapiens" not in samples:raise ValueError("Homo sapiens not found")
     keys=["homosapiens"]+[key for key in samples if key!="homosapiens"]
