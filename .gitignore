@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+logs/
+block_results*/
+annotation_qc_results*/
+data/
+*.fai
