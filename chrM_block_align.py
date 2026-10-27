@@ -103,19 +103,62 @@ def pick_features(items,L):
 def circular(seq,a,b):
     return "".join(seq[i%len(seq)] for i in range(a,b))
 
-def align(records,folder,name,threads,mafft):
+def align(records,folder,name,threads,mafft,incremental=False,batch_size=100):
+    """Reuse a validated MSA cache, or build a fresh MSA.
+
+    A cached alignment is accepted only if its exact sample set and ungapped
+    sequences match the requested inputs. Intergenic alignment uses progressive
+    MAFFT --add batches; no species-count cutoff is applied.
+    """
     if not records:return {}
-    if len(records)==1:return dict(records)
-    src=folder/(name+".fa");dest=folder/(name+".aln.fa")
+    dest=folder/(name+".aln.fa")
+    expected=dict(records)
+    if len(expected)!=len(records):
+        raise ValueError("Duplicate sequence IDs in alignment: "+name)
+    if dest.exists():
+        prior=dict(fasta(dest))
+        if (set(prior)==set(expected)
+                and len(set(map(len,prior.values())))==1
+                and all(prior[k].replace("-","")==seq for k,seq in records)):
+            LOG.info("Reusing cached MSA %s (%d species)",name,len(records))
+            return prior
+        LOG.info("Cached MSA not compatible, rebuilding %s",name)
+    src=folder/(name+".fa")
     save_fasta(src,records)
-    cmd=[mafft,"--retree","2","--maxiterate","0","--thread",str(threads),str(src)]
-    with open(dest,"w") as fd:
-        result=subprocess.run(cmd,stdout=fd,stderr=subprocess.PIPE,text=True)
-    if result.returncode:raise RuntimeError("MAFFT failed for "+name+": "+result.stderr[-1500:])
+    if len(records)==1:
+        save_fasta(dest,records)
+        return dict(records)
+    def mafft_call(cmd,output):
+        with open(output,"w") as fd:
+            result=subprocess.run(cmd,stdout=fd,stderr=subprocess.PIPE,text=True)
+        if result.returncode:
+            raise RuntimeError("MAFFT failed for "+name+": "+result.stderr[-1500:])
+    if incremental and len(records)>batch_size:
+        # Start from the human/reference record plus a manageable seed subset.
+        seed=records[:batch_size]
+        base=folder/(name+".step0.aln.fa")
+        seed_in=folder/(name+".seed.fa")
+        save_fasta(seed_in,seed)
+        mafft_call([mafft,"--retree","2","--maxiterate","0","--thread",str(threads),str(seed_in)],base)
+        for batch_idx,start in enumerate(range(batch_size,len(records),batch_size),1):
+            adding=folder/(name+f".add{batch_idx}.fa")
+            nxt=folder/(name+f".step{batch_idx}.aln.fa")
+            save_fasta(adding,records[start:start+batch_size])
+            mafft_call([mafft,"--add",str(adding),"--thread",str(threads),str(base)],nxt)
+            base.unlink()
+            adding.unlink()
+            base=nxt
+        base.replace(dest)
+        seed_in.unlink()
+    else:
+        mafft_call([mafft,"--retree","2","--maxiterate","0","--thread",str(threads),str(src)],dest)
     rows=dict(fasta(dest))
-    if set(rows)!={x[0] for x in records} or len(set(map(len,rows.values())))!=1:
-        raise ValueError("Invalid MAFFT output "+name)
+    if (set(rows)!=set(expected)
+            or len(set(map(len,rows.values())))!=1
+            or any(rows[k].replace("-","")!=v for k,v in records)):
+        raise ValueError("MAFFT output failed sequence-integrity validation: "+name)
     return rows
+
 def write_tsv(path,rows,columns):
     """Write TSV rows represented as tuples/lists, or dictionaries."""
     with open(path,"w",newline="") as out:
@@ -176,7 +219,7 @@ def run(rank,fa,gffs,trnas,args):
     order=sorted(human_features,key=lambda gene:human_features[gene].start%L)
     # Full gene alignments are intentionally overlapping. Stitched reference bases
     # are emitted only once, and duplicate calls are audited.
-    primary={};duplicates=[];blocks=[]
+    primary={};duplicates=[];blocks=[];flank_qc=[]
     def incorporate(aligned,positions,block,segment):
         reference=aligned["homosapiens"]
         pos_iter=iter(positions)
@@ -230,13 +273,24 @@ def run(rank,fa,gffs,trnas,args):
             if a.strand!=previous_f.strand or b.strand!=current_f.strand:continue
             records.append((key,circular(seq,local_end,b.start)))
         if not any(k=="homosapiens" for k,_ in records):raise ValueError("Missing human IGR")
-        guarded=(len(records)>args.max_flank_sequences or max(len(s) for _,s in records)>args.max_flank_bp)
-        if guarded:records=[(k,s) for k,s in records if k=="homosapiens"]
-        aligned=align(records,intermediate,f"{i:02d}_{gene}_intergenic",args.threads,args.mafft)
+        candidate_count=len(records)
+        # A single pathological long flank can still dominate progressive MAFFT.
+        # Exclude only exceptional candidates, NEVER discard all other species.
+        eligible=[(k,s) for k,s in records if k=="homosapiens" or len(s)<=args.max_flank_bp]
+        excluded_count=candidate_count-len(eligible)
+        if len(eligible)>1:
+            aligned=align(eligible,intermediate,f"{i:02d}_{gene}_intergenic",
+                          args.threads,args.mafft,incremental=True,batch_size=args.flank_batch_size)
+        else:
+            aligned=align(eligible,intermediate,f"{i:02d}_{gene}_intergenic",
+                          args.threads,args.mafft)
         if aligned["homosapiens"].replace("-","")!=circular(human,start,stop):
             raise ValueError("Human intergenic mismatch: "+gene)
         incorporate(aligned,gap_coords,gene,"intergenic")
-        blocks.append((gene,"intergenic",len(records),"guarded" if guarded else "aligned"))
+        status="aligned" if not excluded_count else "aligned_partial_long_sequences_excluded"
+        blocks.append((gene,"intergenic",len(eligible),status))
+        flank_qc.append((gene,candidate_count,len(eligible),excluded_count,
+                        max(len(s) for _,s in records),status))
     if set(primary)!=set(range(1,L+1)):
         raise ValueError(f"Human coverage {len(primary)}/{L}; missing positions {sorted(set(range(1,L+1))-set(primary))[:10]}")
     alignment={key:"".join(primary[i][1][key] for i in range(1,L+1)) for key in keys}
@@ -248,6 +302,7 @@ def run(rank,fa,gffs,trnas,args):
     write_tsv(out/"overlap_dedup.tsv",duplicates,
               ["human_position","primary_block","duplicate_block","n_discordant_species"])
     write_tsv(out/"block_summary.tsv",blocks,["gene","segment","n_sequences","status"])
+    write_tsv(out/"intergenic_qc.tsv",flank_qc,["gene","candidate_species","aligned_species","excluded_long_species","maximum_candidate_bp","status"])
     write_tsv(out/"ambiguous_genes.tsv",ambiguous_rows,["species","gene","n_loci"])
     write_tsv(out/"skipped_species.tsv",skipped,["species","reason"])
     summary=dict(rank=rank,n_species=len(keys),reference_length=L,n_overlap_columns_deduplicated=len(duplicates))
@@ -264,6 +319,7 @@ def main():
     p.add_argument("--mafft",default="mafft")
     p.add_argument("--max-flank-sequences",type=int,default=300)
     p.add_argument("--max-flank-bp",type=int,default=2500)
+    p.add_argument("--flank-batch-size",type=int,default=100)
     p.add_argument("--keep-intermediate",action="store_true")
     args=p.parse_args()
     logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
