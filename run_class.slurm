@@ -19,3 +19,8 @@ python3 chrM_block_align.py \
   --threads "${SLURM_CPUS_PER_TASK}" \
   --keep-intermediate
 python3 validate_alignment.py --rank-dir block_results_v6/class --human-fasta data/Humans_mtdna.fasta
+
+python3 calculate_conservation.py \
+  --msa block_results_v6/class/class_stitched_aln.fasta \
+  --coordinate-map block_results_v6/class/human_coordinate_map.tsv \
+  --out-dir block_results_v6/class/conservation
