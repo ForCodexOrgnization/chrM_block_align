@@ -24,7 +24,8 @@ def load_human_genbank(path, reference_sequence, Feature, expected):
         names=item.qualifiers.get("gene",[])
         if not names:
             continue
-        gene=names[0].upper().replace("MT-","")
+        raw_gene=names[0].upper().replace("MT-","")
+        gene={"COX1":"CO1","COX2":"CO2","COX3":"CO3","CYTB":"CYB"}.get(raw_gene,raw_gene)
         if gene not in expected:
             continue
         if isinstance(item.location,CompoundLocation):
