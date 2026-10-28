@@ -8,7 +8,7 @@ from calculate_conservation import calculate
 def test():
     with tempfile.TemporaryDirectory() as td:
         base=Path(td);msa=base/"tiny.fa";out=base/"scores";mapping=base/"map.tsv"
-        msa.write_text(">Homo sapiens\nACGT\n>Species A\nAC-T\n>Species B\nATNT\n")
+        msa.write_text(">Homo sapiens\nACGT\n>Species A\nAC-T\n>Species B\nATRT\n")
         mapping.write_text("human_position\n1\n2\n3\n4\n")
         calculate(msa,out,mapping,expected_length=4)
         with (out/"conservation_ci.csv").open() as f:
@@ -22,6 +22,6 @@ def test():
             freq=list(csv.DictReader(f))
         assert round(float(freq[2]["g"]),4)==50
         assert round(float(freq[2]["-"]),4)==50
-        print("PASS conservation CI and nucleotide frequencies")
+        print("PASS conservation CI, IUPAC ambiguity and nucleotide frequencies")
 
 if __name__=="__main__":test()
