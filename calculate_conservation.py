@@ -2,7 +2,7 @@
 """Per-human-coordinate conservation from a reference-projected stitched MSA.
 
 CI_MSA reproduces ci_freq_counts_calc.py: percentage of all species' characters
-equal to the human reference base (including gaps/N in denominator).
+equal to the human reference base (including gaps/ambiguous IUPAC in denominator).
 Base frequencies reproduce that script: A/C/G/T/- over those five characters.
 Additional callable-only CI excludes gaps and ambiguous bases.
 """
@@ -12,7 +12,7 @@ import csv
 import json
 from pathlib import Path
 
-VALID=set("ACGT-")
+IUPAC=set("ACGTRYSWKMBDHVN-")
 BASES="ACGT-"
 
 def read_fasta(path):
@@ -41,8 +41,8 @@ def calculate(msa_path,out_dir,map_path=None,expected_length=16569):
         raise ValueError("Unexpected characters in human reference")
     for name,seq in records:
         if len(seq)!=length:raise ValueError(f"{name}: length {len(seq)} != {length}")
-        if set(seq)-set("ACGTN-"):
-            raise ValueError(f"{name}: contains invalid symbols {set(seq)-set('ACGTN-')}")
+        if set(seq)-IUPAC:
+            raise ValueError(f"{name}: contains invalid symbols {set(seq)-IUPAC}")
     if map_path:
         with open(map_path,newline="") as handle:
             rows=list(csv.DictReader(handle,delimiter="\t"))
@@ -75,9 +75,9 @@ def calculate(msa_path,out_dir,map_path=None,expected_length=16569):
             freq.writerow([p+1]+[f"{100*counts[b]/valid:.8f}" if valid else "0" for b in BASES]
                           +[valid]+[counts[b] for b in BASES]+[n-valid])
     report={"input":str(msa_path),"reference_length":length,"n_species":n,
-            "ci_definition":"CI_MSA = 100 * reference-base matches / all species (gap and N in denominator)",
+            "ci_definition":"CI_MSA = 100 * reference-base matches / all species (gap and IUPAC ambiguity in denominator)",
             "ci_callable_definition":"CI_callable = 100 * reference-base matches / ACGT species; empty if none",
-            "frequency_denominator":"A/C/G/T/gap characters only, excluding N",
+            "frequency_denominator":"A/C/G/T/gap characters only, excluding ambiguous IUPAC bases",
             "mean_callable_fraction":total_callable/(n*length),
             "outputs":[str(ci_file),str(freq_file)]}
     (out/"conservation_summary.json").write_text(json.dumps(report,indent=2)+"\n")
