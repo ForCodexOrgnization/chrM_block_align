@@ -13,6 +13,7 @@ python3 chrM_block_align.py \
   --annotation-summary data/mitos2_species_summary.tsv \
   --trnascan-csv data/consolidated_trnascan-2.csv \
   --human-fasta data/Humans_mtdna.fasta \
+  --human-genbank data/sequence.gb \
   --output-dir block_results_v6 \
   --ranks class \
   --threads "${SLURM_CPUS_PER_TASK}" \
