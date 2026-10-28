@@ -51,3 +51,7 @@ python3 validate_alignment.py --rank-dir block_results_v6/class --human-fasta da
 Run the same `sbatch run_class.slurm` command with `--keep-intermediate` enabled (already present in the sample SLURM script). Complete cached `*.aln.fa` files are validated and reused; intergenic blocks previously saved with human-only results are regenerated when their expected sequence membership differs. Check `intergenic_qc.tsv` and `block_summary.tsv`. The intended human reference file for the current dataset is `data/Humans_mtdna.fasta`.
 
 The former `--max-flank-sequences` threshold is no longer used to skip intergenic MSAs; `--flank-batch-size` (default 100) controls progressive addition.
+
+## Canonical human annotation (required)
+
+Install Biopython (`python3 -m pip install biopython`), copy the matched `NC_012920.1` GenBank file to `data/sequence.gb`, and use `data/Humans_mtdna.fasta` as the 16569-bp reference. Set `--human-genbank data/sequence.gb`. All **37 human features** (13 CDS, 2 rRNAs, 22 tRNAs) are parsed directly from this GenBank; the old human MITOS2 GFF and human tRNAscan records are ignored. Other species still use MITOS2 GFF and tRNAscan. The GenBank nucleotide sequence must match the human FASTA exactly. If changing gene boundaries, any affected cached alignments are validated and recalculated based on input sequences.
