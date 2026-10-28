@@ -55,3 +55,22 @@ The former `--max-flank-sequences` threshold is no longer used to skip intergeni
 ## Canonical human annotation (required)
 
 Install Biopython (`python3 -m pip install biopython`), copy the matched `NC_012920.1` GenBank file to `data/sequence.gb`, and use `data/Humans_mtdna.fasta` as the 16569-bp reference. Set `--human-genbank data/sequence.gb`. All **37 human features** (13 CDS, 2 rRNAs, 22 tRNAs) are parsed directly from this GenBank; the old human MITOS2 GFF and human tRNAscan records are ignored. Other species still use MITOS2 GFF and tRNAscan. The GenBank nucleotide sequence must match the human FASTA exactly. If changing gene boundaries, any affected cached alignments are validated and recalculated based on input sequences.
+
+## Conservation scores from stitched MSA
+
+The SLURM workflow now runs `calculate_conservation.py` after `validate_alignment.py`. To run **without rerunning MAFFT**, execute:
+
+```bash
+python3 calculate_conservation.py \
+  --msa block_results_v6/class/class_stitched_aln.fasta \
+  --coordinate-map block_results_v6/class/human_coordinate_map.tsv \
+  --out-dir block_results_v6/class/conservation
+python3 test_conservation.py
+```
+
+Outputs:
+- `conservation/conservation_ci.csv`: one row for each human position with reference nucleotide, `CI_MSA` (percent matches across **all** species including Homo sapiens, matching the supplied legacy algorithm), `CI_callable` (percent matches among A/C/G/T only), and denominators/missingness counts.
+- `conservation/nucleotide_frequencies.csv`: a/c/g/t/- percentages over all valid A/C/G/T/gap characters, ignoring N, together with counts.
+- `conservation/conservation_summary.json`: definition and coverage summary.
+
+**Interpretation:** Gaps in the stitched MSA also represent missing annotations or unaligned blocks, not necessarily biological deletions. `CI_MSA` counts them in its denominator, as the legacy code did. For biologically interpretable scores, inspect `n_callable` and `CI_callable`. This tool does not generate the enormous per-species MSA CSV by default, because the stitched FASTA already contains those sequences.
