@@ -9,6 +9,7 @@ import re
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from human_genbank import load_human_genbank
 
 COMP=str.maketrans("ACGTNacgtn-","TGCANtgcan-")
 CDS=set("ND1 ND2 ND3 ND4 ND4L ND5 ND6 CO1 CO2 CO3 ATP6 ATP8 CYB".split())
@@ -183,14 +184,18 @@ def run(rank,fa,gffs,trnas,args):
     ref=list(fasta(args.human_fasta))
     if len(ref)!=1 or len(ref[0][1])!=16569:raise ValueError("Need one 16569-bp human FASTA")
     human=ref[0][1];L=len(human)
+    human_features_gb=load_human_genbank(args.human_genbank,human,Feature,EXPECTED)
     samples={};skipped=[];ambiguous_rows=[]
     for name,seq in fasta(fa):
         key=norm(name)
         path=gffs.get(key)
-        if not path or not Path(path).exists():
+        if key!="homosapiens" and (not path or not Path(path).exists()):
             skipped.append((name,"missing_gff"));continue
-        all_features=read_gff(path,len(seq))+trnas.get(key,[])
-        features,amb=pick_features(all_features,len(seq))
+        if key=="homosapiens":
+            features,amb=human_features_gb.copy(),{}
+        else:
+            all_features=read_gff(path,len(seq))+trnas.get(key,[])
+            features,amb=pick_features(all_features,len(seq))
         for gene,count in amb.items():ambiguous_rows.append((name,gene,count))
         if key=="homosapiens":
             if len(seq)!=16569:
@@ -199,19 +204,6 @@ def run(rank,fa,gffs,trnas,args):
                 raise ValueError("Human rank FASTA differs from --human-fasta. Use the same 16569-bp reference sequence in both.")
             if set(features)!=EXPECTED or amb:
                 raise ValueError("Human gene set not unique: "+repr(sorted(EXPECTED-set(features)))+" "+repr(amb))
-            # Annotations must be generated for this exact 16569-bp sequence.
-            region_lengths=set()
-            with open(path) as gff_in:
-                for line in gff_in:
-                    p=line.rstrip("\n").split("\t")
-                    if len(p)>=5 and p[2].lower()=="region":
-                        try:region_lengths.add(int(p[4])-int(p[3])+1)
-                        except ValueError:pass
-            if region_lengths and region_lengths!={16569}:
-                raise ValueError(f"Human MITOS2 GFF region length {sorted(region_lengths)} != 16569; supply the 16569-bp human GFF.")
-            for f in features.values():
-                if f.end>16569:
-                    raise ValueError(f"Human annotation exceeds 16569 bp: {f.gene} {f.start+1}-{f.end}")
         samples[key]=(name,seq,features)
     if "homosapiens" not in samples:raise ValueError("Homo sapiens not found")
     keys=["homosapiens"]+[key for key in samples if key!="homosapiens"]
@@ -314,6 +306,7 @@ def main():
     p=argparse.ArgumentParser()
     for x in ("fasta-dir","annotation-summary","trnascan-csv","human-fasta","output-dir"):
         p.add_argument("--"+x,required=True)
+    p.add_argument("--human-genbank",required=True,help="GenBank annotation for the same 16569-bp human FASTA")
     p.add_argument("--ranks",nargs="+",default=None)
     p.add_argument("--threads",type=int,default=4)
     p.add_argument("--mafft",default="mafft")
