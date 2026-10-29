@@ -122,3 +122,20 @@ sbatch run_intergenic_survey.slurm
 
 Or directly: `python3 survey_intergenic_lengths.py --ranks class`.
 Outputs: `block_results_v6/intergenic_length_survey/class_intergenic_summary.tsv`, `class_intergenic_observations.tsv`, `class_skipped_species.tsv`, and `all_ranks_intergenic_summary.tsv`. All intervals use local species circular chrM coordinates and human GenBank gene-pair order. `gap_le_50_bp_fraction` means the entire gap fits within **one** 50-bp flank; `gap_le_100_bp_fraction` fits one 100-bp flank (or two 50-bp flanks); `gap_le_200_bp_fraction` fits two 100-bp flanks. Statistics exclude negative overlaps and absent/rearranged/nonadjacent pairs, which are reported separately. The survey does not establish homology of flanks and should not alone determine padding length.
+
+### Experimental padded gene-block alignment (baseline untouched)
+
+**Safety:** This is a new, experimental implementation. It does not modify `chrM_block_align.py`, `run_all_ranks.slurm`, or `block_results_v6/`. The ongoing kingdom baseline job can continue. Test `class` first.
+
+```bash
+git pull origin main
+mkdir -p logs
+python3 test_padded_alignment.py
+sbatch run_padded_class.slurm                # +/-50 bp; default
+# For +/-100 bp, submit separately after the first test:
+PAD=100 sbatch --export=ALL,PAD=100 run_padded_class.slurm
+```
+
+`chrM_block_align_padded.py` extracts full annotated genes plus +/-50 or +/-100 bp flanks in each species, including circular wrap-around. A nonhuman flank is only extracted if the expected neighboring gene and strand are supported. Padded MSAs use the canonical GenBank human reference to project onto 16,569 positions; gene core candidates take priority over padding, then closest anchor wins with deterministic gene order ties. The independent TRNP-TRNF intergenic MSA is retained and used as a fallback; ordinary IGR alignment is performed only when padded blocks leave reference columns uncovered. Note that this is a first experimental implementation, not yet biologically validated: strict adjacency gating may discard useful flanks, and the position-based owner rule should be reviewed against alternative region-level stitching before making biological claims.
+
+Output: `block_results_padded_v1/pad50/class/` or `pad100/class/`, including stitched FASTA, coordinate map, `stitch_decisions.tsv`, `overlap_conflicts.tsv`, `flank_context_qc.tsv`, `intergenic_qc.tsv`, conservation scores and validation report. Original CI scoring remains exact human-base matches divided by **all species**, including gaps/IUPAC ambiguity as nonmatches.
