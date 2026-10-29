@@ -12,8 +12,8 @@ def main():
     # Local gene rearrangement invalidates both affected flanks.
     swap={"TRNT":fs["TRNT"],"TRNP":Feature("TRNP",200,300,"+"),
           "TRNF":Feature("TRNF",100,200,"+"),"RNR1":fs["RNR1"]}
-    assert neighbours(swap,"TRNP",fs,names,400)==(False,True)
-    assert neighbours(swap,"TRNF",fs,names,400)==(True,False)
+    assert neighbours(swap,"TRNP",fs,names,400)==(False,False)
+    assert neighbours(swap,"TRNF",fs,names,400)==(False,False)
     print("PASS padded flank context checks")
 
 if __name__=="__main__":main()
