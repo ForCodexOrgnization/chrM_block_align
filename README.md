@@ -92,3 +92,20 @@ python3 compare_old_new_ci.py \
 This script skips unfinished ranks (unless `--strict-all-ranks` is set), retains all variant rows for downstream ClinVar ROC, and makes a distinct-position table for comparisons. Output: `variant_old_new_ci.csv`, `position_old_new_ci.csv`, `comparison_summary.csv`, `paired_roc.png`, `score_delta_by_rank.png`, `gene_heatmap_old.png`, `gene_heatmap_new.png`, and `roc_auc_summary.csv`. Uses pandas, numpy, matplotlib, scikit-learn (install if missing). `--no-plots` only requires pandas/numpy.
 
 **Methodological caution:** old `{rank}_rot_ref` values may include zeros in the supplied annotation CSV. Confirm whether zero encodes genuinely zero conservation or unavailable/not computed scores; the script flags this instead of changing values. ROC uses the original plotting script's raw-score orientation, so an AUC below 0.5 may mean conservation and pathogenicity are inversely correlated, not that the predictor has no signal.
+
+
+### CI diagnostic analyses: boundaries, coverage, and paired ROC
+
+Once `compare_old_new_ci.py` has created `block_results_v6/ci_comparison/position_old_new_ci.csv` and `variant_old_new_ci.csv`, run:
+
+```bash
+mkdir -p logs
+sbatch run_ci_diagnostics.slurm
+# Or interactively with a suitable Python environment:
+python3 analyze_ci_diagnostics.py --comparison-dir block_results_v6/ci_comparison \
+  --human-genbank data/sequence.gb --bootstrap-reps 1000
+```
+
+The diagnostic script skips missing ranks (e.g., kingdom while running), reads canonical human CDS/rRNA/tRNA boundaries from `data/sequence.gb` including circular wrap-around, and computes per-position absolute old/new CI differences by distance-to-boundary bins and callability (`n_callable/n_species`, default <50%, 50%-90%, >=90%). Outputs in `ci_comparison/diagnostics/`: `boundary_summary.csv`, `boundary_abs_ci_difference.png`, `coverage_summary.csv`, `coverage_abs_ci_difference.png`, `position_diagnostics.csv`, `paired_roc_bootstrap_summary.csv`, and `paired_roc_bootstrap_replicates.csv`.
+
+Paired ROC AUC bootstrap resamples **human positions as clusters**, taking all associated REF/ALT variants together, and computes **new minus old AUC** on identical labeled variants per rank; default 1000 replicates, fixed seed. The 95% interval is a bootstrap percentile interval and is not a formal significance test. CI scores remain in the original **0–100** scale (AUC itself is 0–1). All required Python dependencies: `biopython pandas numpy matplotlib scikit-learn`. The SLURM job uses the configured Hail environment; change `PYTHON` there if these libraries are not installed.
