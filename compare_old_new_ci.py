@@ -127,7 +127,7 @@ def write_plots(variant,per_position,ranks,out,do_roc=True):
         fig,ax=plt.subplots(figsize=(11,5))
         data=[(per_position[f"{r}_new_ci"]-per_position[f"{r}_rot_ref"]).dropna().values
               for r in ranks]
-        ax.boxplot(data,labels=ranks,showfliers=False)
+        ax.boxplot(data,tick_labels=ranks,showfliers=False)
         ax.axhline(0,color="black",lw=.8)
         ax.set_ylabel("New CI - Old CI (0–100 scale)")
         ax.set_title("Per-position difference: new block MSA vs old chrM CI")
