@@ -145,3 +145,15 @@ Output: `block_results_padded_v1/pad50/class/` or `pad100/class/`, including sti
 Run `mkdir -p logs && sbatch run_three_way_roc.slurm` after the class padded conservation CSV is ready. The new script `compare_three_way_roc.py` uses **identical clinically labeled REF/ALT variants** for all three 0-100 CI measures: `class_rot_ref` (old), `block_results_v6/class/conservation/conservation_ci.csv` (gene-only), `block_results_padded_v1/pad50/class/conservation/conservation_ci.csv` (padded). ClinVar P/LP or MITOMAP `Cfrm` are positive; ClinVar Benign without `Cfrm` are negative. Duplicate variant records are removed. All AUC differences use paired **position-clustered bootstrap** (default 1000), 95% percentile intervals. Groups: genome-wide, protein coding (CDS), tRNA, rRNA, intergenic, human GenBank gene-boundary windows **0-5, 6-25, 26-100, >100 bp**, and **within-gene** AUC comparing pathogenic/benign variants *only within the same human gene* (weighted by the available within-gene positive-negative pairs). Groups with <5 examples of either label are marked `insufficient_labels` rather than assigned a misleading AUC. Outputs: `three_way_auc_summary.csv`, `labeled_variant_scores.csv`, `three_way_genome_roc.png`.
 
 **Interpretation:** gene-category composition and differences in label availability can bias global comparisons. Boundary-specific estimates may have few labels; report the counts and confidence intervals. Within-gene AUC does not remove all ascertainment bias. AUC tests pathogenicity ranking, not alignment orthology correctness. Existing baseline alignment scripts and output directories remain untouched.
+
+### All-rank genome-wide ROC after kingdom baseline completion
+
+The standalone `compare_all_ranks_genome_roc.py` script compares **original `{rank}_rot_ref`** with **block v6 `CI_MSA`** for all ten taxonomic ranks, including kingdom. It requires `block_results_v6/{rank}/conservation/conservation_ci.csv` for each rank. All ranks are scored on the **same complete-case set of uniquely labeled POS/REF/ALT variants**, with paired 1000-replicate position-cluster bootstrap CIs. It checks CI in 0–100 and retains the previous ClinVar/MITOMAP label definitions.
+
+```bash
+git pull origin main
+mkdir -p logs
+sbatch run_all_ranks_genome_roc.slurm
+```
+
+Files are created in `block_results_v6/all_ranks_genome_roc/`: `all_ranks_roc_summary.csv`, `all_ranks_roc_bootstrap.csv`, `all_ranks_roc.png`, `shared_labeled_variants.csv`. This only reads the completed alignment/conservation outputs; it does not rerun alignment or edit original files. Note: positive/negative clinical label composition can differ across gene categories. This genome-wide test is an overall benchmark and does not replace within-gene or boundary-specific ROC.
