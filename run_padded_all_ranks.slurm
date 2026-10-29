@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=chrM_pad_all
-#SBATCH --array=0-9%2
+#SBATCH --array=0-19%2
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
 #SBATCH --time=3-00:00:00
@@ -12,13 +12,12 @@ cd "${SLURM_SUBMIT_DIR}"
 module load MAFFT/7.526-GCC-13.3.0-with-extensions
 PYTHON=/vast/palmer/home.mccleary/njl27/shared/mt_calling_inputs/required_software/hail-conda/bin/python
 RANKS=(kingdom phylum subphylum superclass class superorder order suborder infraorder parvorder)
-RANK="${RANKS[${SLURM_ARRAY_TASK_ID}]}"
-PAD="${PAD:-50}"
+RANK_INDEX=$((SLURM_ARRAY_TASK_ID % 10))
+PAD_INDEX=$((SLURM_ARRAY_TASK_ID / 10))
+RANK="${RANKS[$RANK_INDEX]}"
+PADS=(50 100)
+PAD="${PADS[$PAD_INDEX]}"
 OUT="block_results_padded_v1/pad${PAD}/${RANK}"
-if [[ "${PAD}" != 50 && "${PAD}" != 100 ]]; then
-  echo "PAD must be 50 or 100" >&2
-  exit 2
-fi
 if [[ -f "${OUT}/validation.json" && -f "${OUT}/conservation/conservation_ci.csv" ]]; then
   echo "SKIP existing validated output: ${OUT}"
   exit 0
