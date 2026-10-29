@@ -22,8 +22,8 @@ def run():
         v,p,summary,ranks=load_comparison(old,rdir)
         assert ranks==["class"],ranks
         assert len(v)==3 and len(p)==2
-        assert v["class_new_ci"].tolist()==[.75,.75,.5]\n        assert v["class_rot_ref"].tolist()==[.5,.5,.2]
-        assert p["class_new_ci"].tolist()==[.75,.5]
+        assert v["class_new_ci"].tolist()==[75,75,50]\n        assert v["class_rot_ref"].tolist()==[50,50,20]
+        assert p["class_new_ci"].tolist()==[75,50]
         assert summary.loc[summary["rank"]=="class","n_paired_positions"].iloc[0]==2
         print("PASS comparison parsing and variant/position joins")
 
