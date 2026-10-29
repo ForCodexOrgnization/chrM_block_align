@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=chrM_pad_all
-#SBATCH --partition=week
+#SBATCH --partition=day
 #SBATCH --array=0-19%2
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
-#SBATCH --time=3-00:00:00
+#SBATCH --time=24:00:00
 #SBATCH --output=logs/chrm_pad_all_%A_%a.out
 #SBATCH --error=logs/chrm_pad_all_%A_%a.err
 
