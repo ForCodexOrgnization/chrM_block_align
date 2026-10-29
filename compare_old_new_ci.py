@@ -5,7 +5,7 @@ Old input: 2026_10_10_mito_cons_anns_main.csv (POS, {rank}_rot_ref).
 New input: block_results_v6/{rank}/conservation/conservation_ci.csv
 ( Position, Homo sapiens, CI_MSA, CI_callable, n_callable, ... ).
 
-Old scores are 0-1, new CI values are percentages; new values are /100.
+Both old and new CI source values are percentages (0-100); both are /100.
 One row per human position is used for score/QC summaries. The variant
 table retains all REF/ALT rows for ROC and consequence comparisons.
 """
@@ -34,8 +34,9 @@ def read_old(path):
         col=f"{rank}_rot_ref"
         df[col]=pd.to_numeric(df[col],errors="coerce")
         valid=df[col].dropna()
-        if len(valid) and not valid.between(0,1).all():
-            raise ValueError(f"Old {col} must be on a 0-1 scale")
+        if len(valid) and not valid.between(0,100).all():
+            raise ValueError(f"Old {col} must be on a 0-100 scale")
+        df[col] = df[col] / 100.0
     return df
 
 def read_new_rank(root,rank,metric):
@@ -193,7 +194,7 @@ def main():
         write_plots(variant,positions,ranks,out)
     (out/"comparison_metadata.json").write_text(json.dumps({
         "old_csv":args.old_csv,"new_ci_metric":args.new_metric,
-        "new_ci_divided_by_100":True,
+        "new_ci_divided_by_100":True,"old_ci_divided_by_100":True,
         "loaded_ranks":ranks,
         "pending_ranks":[r for r in RANKS if r not in ranks],
         "note":"Old zeros preserved, may represent missing data. Inspect old_zero_fraction."
