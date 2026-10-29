@@ -109,3 +109,16 @@ python3 analyze_ci_diagnostics.py --comparison-dir block_results_v6/ci_compariso
 The diagnostic script skips missing ranks (e.g., kingdom while running), reads canonical human CDS/rRNA/tRNA boundaries from `data/sequence.gb` including circular wrap-around, and computes per-position absolute old/new CI differences by distance-to-boundary bins and callability (`n_callable/n_species`, default <50%, 50%-90%, >=90%). Outputs in `ci_comparison/diagnostics/`: `boundary_summary.csv`, `boundary_abs_ci_difference.png`, `coverage_summary.csv`, `coverage_abs_ci_difference.png`, `position_diagnostics.csv`, `paired_roc_bootstrap_summary.csv`, and `paired_roc_bootstrap_replicates.csv`.
 
 Paired ROC AUC bootstrap resamples **human positions as clusters**, taking all associated REF/ALT variants together, and computes **new minus old AUC** on identical labeled variants per rank; default 1000 replicates, fixed seed. The 95% interval is a bootstrap percentile interval and is not a formal significance test. CI scores remain in the original **0–100** scale (AUC itself is 0–1). All required Python dependencies: `biopython pandas numpy matplotlib scikit-learn`. The SLURM job uses the configured Hail environment; change `PYTHON` there if these libraries are not installed.
+
+### Preliminary intergenic-length survey (before padding)
+
+Run the small **class-only** annotation survey without MAFFT:
+
+```bash
+git pull origin main
+mkdir -p logs
+sbatch run_intergenic_survey.slurm
+```
+
+Or directly: `python3 survey_intergenic_lengths.py --ranks class`.
+Outputs: `block_results_v6/intergenic_length_survey/class_intergenic_summary.tsv`, `class_intergenic_observations.tsv`, `class_skipped_species.tsv`, and `all_ranks_intergenic_summary.tsv`. All intervals use local species circular chrM coordinates and human GenBank gene-pair order. `gap_le_50_bp_fraction` means the entire gap fits within **one** 50-bp flank; `gap_le_100_bp_fraction` fits one 100-bp flank (or two 50-bp flanks); `gap_le_200_bp_fraction` fits two 100-bp flanks. Statistics exclude negative overlaps and absent/rearranged/nonadjacent pairs, which are reported separately. The survey does not establish homology of flanks and should not alone determine padding length.
