@@ -74,3 +74,21 @@ Outputs:
 - `conservation/conservation_summary.json`: definition and coverage summary.
 
 **Interpretation:** Gaps in the stitched MSA also represent missing annotations or unaligned blocks, not necessarily biological deletions. `CI_MSA` counts them in its denominator, as the legacy code did. For biologically interpretable scores, inspect `n_callable` and `CI_callable`. This tool does not generate the enormous per-species MSA CSV by default, because the stitched FASTA already contains those sequences.
+
+## Compare old chrM CI with new stitched MSA CI
+
+The original annotations file (`2026_10_10_mito_cons_anns_main.csv`) has `POS` and ten old `{rank}_chrm_cons` scores (0–1). It contains multiple REF/ALT variants at many positions. The new pipeline writes `block_results_v6/{rank}/conservation/conservation_ci.csv`, one row per human position, with `CI_MSA` and `CI_callable` percentages (0–100).
+
+Place the old CSV under `data/2026_10_10_mito_cons_anns_main.csv` and run:
+
+```bash
+python3 compare_old_new_ci.py \
+  --old-csv data/2026_10_10_mito_cons_anns_main.csv \
+  --results-dir block_results_v6 \
+  --new-metric CI_MSA \
+  --out-dir block_results_v6/ci_comparison
+```
+
+This script skips unfinished ranks (unless `--strict-all-ranks` is set), retains all variant rows for downstream ClinVar ROC, and makes a distinct-position table for comparisons. Output: `variant_old_new_ci.csv`, `position_old_new_ci.csv`, `comparison_summary.csv`, `paired_roc.png`, `score_delta_by_rank.png`, `gene_heatmap_old.png`, `gene_heatmap_new.png`, and `roc_auc_summary.csv`. Uses pandas, numpy, matplotlib, scikit-learn (install if missing). `--no-plots` only requires pandas/numpy.
+
+**Methodological caution:** old `{rank}_chrm_cons` values are predominantly zero in the supplied annotation CSV. Confirm whether zero encodes genuinely zero conservation or unavailable/not computed scores; the script flags this instead of changing values. ROC uses the original plotting script's raw-score orientation, so an AUC below 0.5 may mean conservation and pathogenicity are inversely correlated, not that the predictor has no signal.
