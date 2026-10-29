@@ -59,7 +59,13 @@ def read_new_rank(root,rank,metric):
     df[f"{rank}_new_ci"]=df[metric]
     df[f"{rank}_new_ci_msa"]=df["CI_MSA"]
     df[f"{rank}_new_ci_callable"]=df["CI_callable"]
-    return df.drop(columns=["CI_MSA","CI_callable"]),path
+    # Select only rank-specific fields. In particular, do not merge the raw
+    # n_match column repeatedly across ranks (pandas suffix collisions).
+    selected = ["POS", f"{rank}_human", f"{rank}_new_ci",
+                f"{rank}_new_ci_msa", f"{rank}_new_ci_callable",
+                f"{rank}_n_callable", f"{rank}_n_species",
+                f"{rank}_n_gap", f"{rank}_n_ambiguous"]
+    return df[selected],path
 
 def load_comparison(old_csv,results_dir,metric="CI_MSA",strict=False):
     old=read_old(old_csv)
