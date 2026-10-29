@@ -5,7 +5,7 @@ Old input: 2026_10_10_mito_cons_anns_main.csv (POS, {rank}_rot_ref).
 New input: block_results_v6/{rank}/conservation/conservation_ci.csv
 ( Position, Homo sapiens, CI_MSA, CI_callable, n_callable, ... ).
 
-Both old and new CI source values are percentages (0-100); both are /100.
+Both old and new CI values are percentages (0-100), preserved without rescaling.
 One row per human position is used for score/QC summaries. The variant
 table retains all REF/ALT rows for ROC and consequence comparisons.
 """
@@ -36,7 +36,6 @@ def read_old(path):
         valid=df[col].dropna()
         if len(valid) and not valid.between(0,100).all():
             raise ValueError(f"Old {col} must be on a 0-100 scale")
-        df[col] = df[col] / 100.0
     return df
 
 def read_new_rank(root,rank,metric):
@@ -57,9 +56,9 @@ def read_new_rank(root,rank,metric):
     df=df.rename(columns={"Position":"POS","Homo sapiens":f"{rank}_human",
                           "n_callable":f"{rank}_n_callable","n_species":f"{rank}_n_species",
                           "n_gap":f"{rank}_n_gap","n_ambiguous":f"{rank}_n_ambiguous"})
-    df[f"{rank}_new_ci"]=df[metric]/100.0
-    df[f"{rank}_new_ci_msa"]=df["CI_MSA"]/100.0
-    df[f"{rank}_new_ci_callable"]=df["CI_callable"]/100.0
+    df[f"{rank}_new_ci"]=df[metric]
+    df[f"{rank}_new_ci_msa"]=df["CI_MSA"]
+    df[f"{rank}_new_ci_callable"]=df["CI_callable"]
     return df.drop(columns=["CI_MSA","CI_callable"]),path
 
 def load_comparison(old_csv,results_dir,metric="CI_MSA",strict=False):
@@ -124,7 +123,7 @@ def write_plots(variant,per_position,ranks,out,do_roc=True):
               for r in ranks]
         ax.boxplot(data,labels=ranks,showfliers=False)
         ax.axhline(0,color="black",lw=.8)
-        ax.set_ylabel("New CI - Old CI (0–1 scale)")
+        ax.set_ylabel("New CI - Old CI (0–100 scale)")
         ax.set_title("Per-position difference: new block MSA vs old chrM CI")
         ax.tick_params(axis="x",rotation=45)
         fig.tight_layout();fig.savefig(out/"score_delta_by_rank.png",dpi=180);plt.close(fig)
@@ -139,11 +138,11 @@ def write_plots(variant,per_position,ranks,out,do_roc=True):
                 mats[kind]=m
             for kind,m in mats.items():
                 fig,ax=plt.subplots(figsize=(max(9,len(ranks)),max(6,len(m)*.25)))
-                im=ax.imshow(m.values,aspect="auto",vmin=0,vmax=1,cmap="viridis")
+                im=ax.imshow(m.values,aspect="auto",vmin=0,vmax=100,cmap="viridis")
                 ax.set_xticks(range(len(ranks)),ranks,rotation=45,ha="right")
                 ax.set_yticks(range(len(m)),m.index,fontsize=7)
                 ax.set_title(f"Mean {kind.upper()} CI by gene and rank")
-                fig.colorbar(im,ax=ax,label="CI (0–1)")
+                fig.colorbar(im,ax=ax,label="CI (0–100)")
                 fig.tight_layout();fig.savefig(out/f"gene_heatmap_{kind}.png",dpi=180);plt.close(fig)
     if do_roc and ranks:
         y=labels(variant)
@@ -194,7 +193,7 @@ def main():
         write_plots(variant,positions,ranks,out)
     (out/"comparison_metadata.json").write_text(json.dumps({
         "old_csv":args.old_csv,"new_ci_metric":args.new_metric,
-        "new_ci_divided_by_100":True,"old_ci_divided_by_100":True,
+        "score_scale":"0-100","new_ci_divided_by_100":False,"old_ci_divided_by_100":False,
         "loaded_ranks":ranks,
         "pending_ranks":[r for r in RANKS if r not in ranks],
         "note":"Old zeros preserved, may represent missing data. Inspect old_zero_fraction."
