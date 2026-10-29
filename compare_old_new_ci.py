@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Load new rank-specific stitched-MSA CI and compare it with old chrM CI.
 
-Old input: 2026_10_10_mito_cons_anns_main.csv (POS, {rank}_chrm_cons).
+Old input: 2026_10_10_mito_cons_anns_main.csv (POS, {rank}_rot_ref).
 New input: block_results_v6/{rank}/conservation/conservation_ci.csv
 ( Position, Homo sapiens, CI_MSA, CI_callable, n_callable, ... ).
 
@@ -23,7 +23,7 @@ CORE=["POS","REF","ALT","symbol","consequence","clinvar_interp_new","mitomap_sta
 
 def read_old(path):
     df=pd.read_csv(path,low_memory=False)
-    required={"POS",*(f"{r}_chrm_cons" for r in RANKS)}
+    required={"POS",*(f"{r}_rot_ref" for r in RANKS)}
     missing=required-set(df.columns)
     if missing:raise ValueError(f"Old annotations missing columns: {sorted(missing)}")
     df["POS"]=pd.to_numeric(df["POS"],errors="coerce")
@@ -31,7 +31,7 @@ def read_old(path):
         raise ValueError("Old file has missing/out-of-range POS")
     df.POS=df.POS.astype(int)
     for rank in RANKS:
-        col=f"{rank}_chrm_cons"
+        col=f"{rank}_rot_ref"
         df[col]=pd.to_numeric(df[col],errors="coerce")
         valid=df[col].dropna()
         if len(valid) and not valid.between(0,1).all():
@@ -78,7 +78,7 @@ def load_comparison(old_csv,results_dir,metric="CI_MSA",strict=False):
         loaded.append(rank)
         variant=variant.merge(fresh,on="POS",how="left",validate="many_to_one")
         per_position=per_position.merge(fresh,on="POS",how="left",validate="one_to_one")
-        old_col=f"{rank}_chrm_cons";new_col=f"{rank}_new_ci"
+        old_col=f"{rank}_rot_ref";new_col=f"{rank}_new_ci"
         sub=per_position[[old_col,new_col]].dropna()
         if not len(sub):raise ValueError(f"No paired scores for {rank}")
         mismatches=0
@@ -119,7 +119,7 @@ def write_plots(variant,per_position,ranks,out,do_roc=True):
     # Per-position delta distributions, never inflated by 3 ALT variants at a site.
     if ranks:
         fig,ax=plt.subplots(figsize=(11,5))
-        data=[(per_position[f"{r}_new_ci"]-per_position[f"{r}_chrm_cons"]).dropna().values
+        data=[(per_position[f"{r}_new_ci"]-per_position[f"{r}_rot_ref"]).dropna().values
               for r in ranks]
         ax.boxplot(data,labels=ranks,showfliers=False)
         ax.axhline(0,color="black",lw=.8)
@@ -132,7 +132,7 @@ def write_plots(variant,per_position,ranks,out,do_roc=True):
             tab=per_position.copy()
             mats={}
             for kind in ["old","new"]:
-                columns=[f"{r}_chrm_cons" if kind=="old" else f"{r}_new_ci" for r in ranks]
+                columns=[f"{r}_rot_ref" if kind=="old" else f"{r}_new_ci" for r in ranks]
                 m=tab.groupby("symbol",dropna=True)[columns].mean()
                 m.columns=ranks
                 mats[kind]=m
@@ -152,7 +152,7 @@ def write_plots(variant,per_position,ranks,out,do_roc=True):
         for i,kind in enumerate(["old","new"]):
             ax=axes[i]
             for j,rank in enumerate(ranks):
-                col=f"{rank}_chrm_cons" if kind=="old" else f"{rank}_new_ci"
+                col=f"{rank}_rot_ref" if kind=="old" else f"{rank}_new_ci"
                 score=pd.to_numeric(variant[col],errors="coerce")
                 ok=y.notna()&score.notna()
                 if y[ok].nunique()<2:continue
@@ -184,7 +184,7 @@ def main():
     baseline=[c for c in CORE if c in variant]
     rank_cols=[]
     for rank in ranks:
-        rank_cols += [f"{rank}_chrm_cons",f"{rank}_new_ci",f"{rank}_new_ci_msa",
+        rank_cols += [f"{rank}_rot_ref",f"{rank}_new_ci",f"{rank}_new_ci_msa",
                       f"{rank}_new_ci_callable",f"{rank}_n_callable",f"{rank}_n_species",f"{rank}_n_gap"]
     variant[baseline+rank_cols].to_csv(out/"variant_old_new_ci.csv",index=False)
     positions[["POS"]+rank_cols].to_csv(out/"position_old_new_ci.csv",index=False)
