@@ -158,9 +158,9 @@ sbatch run_all_ranks_genome_roc.slurm
 
 Files are created in `block_results_v6/all_ranks_genome_roc/`: `all_ranks_roc_summary.csv`, `all_ranks_roc_bootstrap.csv`, `all_ranks_roc.png`, `shared_labeled_variants.csv`. This only reads the completed alignment/conservation outputs; it does not rerun alignment or edit original files. Note: positive/negative clinical label composition can differ across gene categories. This genome-wide test is an overall benchmark and does not replace within-gene or boundary-specific ROC.
 
-### Run +/-50 bp padded alignment across all ten ranks (independent array jobs)
+### Run both +/-50 bp and +/-100 bp padding across all ten ranks
 
-This is independent of `block_results_v6/` and **does not rerun the old kingdom alignment**. The array launches ten rank-specific jobs with at most two concurrent jobs; each rank writes only to `block_results_padded_v1/pad50/<rank>/`. The existing class pad50 outputs are skipped when both `validation.json` and `conservation/conservation_ci.csv` exist. Partial results abort safely instead of being overwritten.
+One submission creates a **20-task SLURM array** (10 ranks x 2 padding choices), with at most two tasks running concurrently. Each task runs the alignment, structural validation, and conservation calculation separately. The same script automatically maps array indices 0-9 to pad50 and 10-19 to pad100. No PAD environment variable is necessary.
 
 ```bash
 git pull origin main
@@ -169,4 +169,5 @@ sbatch run_padded_all_ranks.slurm
 squeue -u "$USER"
 ```
 
-To run +/-100 bp later in a separate directory, use `sbatch --export=ALL,PAD=100 run_padded_all_ranks.slurm`. Each array task requests 4 CPUs, 96 GiB RAM, and a 3-day wall-time; check your partition limits and available quotas first. The array limit `%2` bounds concurrent rank jobs but does not guarantee the full job fits queue policy. **This starts new MAFFT calculations** and may require considerable CPU/storage at kingdom. If a rank fails, inspect `logs/chrm_pad_all_<job>_<task>.err`; do not delete/reuse partial output without reviewing it. The current padded stitching remains experimental; assess conflict QC and ROC before treating its CI as more accurate.
+Outputs are isolated in `block_results_padded_v1/pad50/<rank>/` and `block_results_padded_v1/pad100/<rank>/`. Existing validated output is skipped. Partially completed output causes that task to stop without overwriting it, so review any error log before resubmission. Old `block_results_v6/` results are unchanged. Each concurrent task requests 4 CPUs, 96 GiB of RAM, and up to 3 days; confirm these are allowed by your HPC partition. Higher ranks may take substantially longer, and the padded strategy is still experimental.
+
