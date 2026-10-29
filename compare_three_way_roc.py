@@ -76,10 +76,10 @@ def auc(y,s,w=None):
 def within_gene_auc(d,w=None):
     # Comparable pathogenic/benign pairs must be within the same gene.
     if w is None:w=np.ones(len(d))
-    pos_total=0.;neg_total=0.;numerator=0.;pair_total=0.
+    numerator=0.;pair_total=0.
     for _,idx in d.groupby("gene",sort=False).indices.items():
         y=d.label.to_numpy()[idx]
-        a=d._score.to_numpy()[idx]
+        a=d["_score"].to_numpy()[idx]
         wt=w[idx]
         p=wt[y==1].sum();n=wt[y==0].sum()
         if p==0 or n==0:continue
