@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=chrM_pad_all
-#SBATCH --partition=long
+#SBATCH --partition=week
 #SBATCH --array=0-19%2
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
