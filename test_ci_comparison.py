@@ -9,7 +9,7 @@ def run():
     with tempfile.TemporaryDirectory() as tmp:
         root=Path(tmp);old=root/"old.csv";rdir=root/"results"
         o=pd.DataFrame({"POS":[1,1,2],"REF":["A","A","C"],"ALT":["G","T","A"],
-                        **{f"{r}_chrm_cons":[.5,.5,.2] for r in RANKS}})
+                        **{f"{r}_rot_ref":[.5,.5,.2] for r in RANKS}})
         o.to_csv(old,index=False)
         d=rdir/"class"/"conservation"
         d.mkdir(parents=True)
