@@ -77,7 +77,7 @@ Outputs:
 
 ## Compare old chrM CI with new stitched MSA CI
 
-The original annotations file (`2026_10_10_mito_cons_anns_main.csv`) has `POS` and ten old `{rank}_rot_ref` scores (0–100). It contains multiple REF/ALT variants at many positions. The new pipeline writes `block_results_v6/{rank}/conservation/conservation_ci.csv`, one row per human position, with `CI_MSA` and `CI_callable` percentages (0–100).
+The original annotations file (`2026_10_10_mito_cons_anns_main.csv`) has `POS` and ten old `{rank}_rot_ref` scores (0–100). It contains multiple REF/ALT variants at many positions. The new pipeline writes `block_results_v6/{rank}/conservation/conservation_ci.csv`, one row per human position, with `CI_MSA` and `CI_callable` percentages (0–100). Both old and new scores are preserved on the 0–100 scale in tables and plots.
 
 Place the old CSV under `data/2026_10_10_mito_cons_anns_main.csv` and run:
 
