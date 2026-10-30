@@ -14,6 +14,8 @@ from pathlib import Path
 from types import SimpleNamespace
 import chrM_block_align as base
 import chrM_block_align_padded as padded
+from human_genbank import load_human_genbank
+import resolve_gene_order_annotations as go
 
 LOG=logging.getLogger("genbank_mitos")
 COLMAP={"nd1":"ND1","nd2":"ND2","nd3":"ND3","nd4":"ND4","nd4l":"ND4L",
@@ -27,10 +29,8 @@ def normalize_name(value):
     return re.sub(r"[^a-z0-9]","",str(value).casefold())
 
 def load_aliases(path):
-    with open(path,newline="") as inp:
+    with open(path,newline="",encoding="utf-8-sig") as inp:
         rows=csv.DictReader(inp)
-        unknown=set(rows.fieldnames or [])-set(COLMAP)-{"D-loop"}
-        if unknown:raise ValueError(f"Unknown alias columns: {sorted(unknown)}")
         alias=collections.defaultdict(set)
         for col,canonical in COLMAP.items():
             alias[normalize_name(col)].add(canonical)
@@ -39,40 +39,48 @@ def load_aliases(path):
             for col,canonical in COLMAP.items():
                 raw=(row.get(col) or "").strip()
                 if raw:alias[normalize_name(raw)].add(canonical)
-    conflicts={k:sorted(v) for k,v in alias.items() if len(v)>1}
-    if conflicts:raise ValueError(f"Ambiguous gene aliases: {conflicts}")
-    return {k:next(iter(v)) for k,v in alias.items()}
+    return {k:frozenset(v) for k,v in alias.items()}
 
-def load_genbank_csv(path,aliases):
-    by_species=collections.defaultdict(list);unmapped=[];invalid=[]
-    with open(path,newline="") as inp:
+def load_genbank_csv(path,aliases,reference):
+    by_species=collections.defaultdict(list);unmapped=[];invalid=[];resolution=[]
+    groups=collections.defaultdict(list)
+    with open(path,newline="",encoding="utf-8-sig") as inp:
         reader=csv.DictReader(inp)
-        required={"Gene","start","end","strand"}
-        if not required.issubset(reader.fieldnames or []):
-            raise ValueError("GenBank annotation CSV must contain Gene,start,end,strand "
-                             "(plus Organism or an accession-to-species mapping). "
-                             "The uploaded synonym CSV is NOT the coordinate file.")
+        if not {"start","end","strand"}.issubset(reader.fieldnames or []):
+            raise ValueError("GenBank annotations require start,end,strand")
         if not ({"Organism","organism","species"} & set(reader.fieldnames or [])):
-            raise ValueError("GenBank coordinate CSV needs Organism/organism/species to match rank FASTA headers.")
+            raise ValueError("GenBank annotations require Organism/organism/species")
         for idx,row in enumerate(reader,2):
             species=row.get("Organism") or row.get("organism") or row.get("species") or ""
-            key=base.norm(species)
-            if not key:invalid.append((idx,"missing species"));continue
-            raw=(row.get("Gene") or "").strip()
-            gene=aliases.get(normalize_name(raw))
-            if gene is None:
-                unmapped.append((idx,species,raw));continue
-            try:
-                start=int(float(row["start"]));end=int(float(row["end"]))
-            except (TypeError,ValueError):
+            species_key=base.norm(species)
+            if not species_key:invalid.append((idx,"missing species"));continue
+            hits=go.candidates(row,aliases)
+            if not hits:
+                unmapped.append((idx,species,row.get("Gene","")));continue
+            try:start,end=int(row["start"]),int(row["end"])
+            except (ValueError,TypeError):
                 invalid.append((idx,"invalid coordinates"));continue
             strand=(row.get("strand") or "").strip()
             if strand not in ("+","-"):
                 invalid.append((idx,"invalid strand"));continue
-            # GenBank coordinate export is 1-based inclusive; circular coordinates
-            # are normalized to forward 0-based intervals per species below.
-            by_species[key].append((gene,start,end,strand,row.get("acc",""),idx))
-    return by_species,unmapped,invalid
+            groups[species_key].append((hits,start,end,strand,row.get("acc",""),idx,species))
+    for species_key,entries in groups.items():
+        accessions={e[4] for e in entries if e[4]}
+        if len(accessions)>1:
+            invalid.extend((e[5],"multiple_accessions") for e in entries)
+            continue
+        entries.sort(key=lambda e:e[1])
+        choices=[(e[0],e[3],e[5]) for e in entries]
+        resolved,details=go.resolve(choices,reference)
+        for detail in details:
+            e=entries[detail["index"]]
+            resolution.append((species_key,e[6],e[5],detail["candidates"],
+                               detail["status"],detail["assigned"],
+                               detail.get("supported",""),detail.get("n_best_assignments","")))
+        for e,gene in zip(entries,resolved):
+            if gene is not None:
+                by_species[species_key].append((gene,e[1],e[2],e[3],e[4],e[5]))
+    return by_species,unmapped,invalid,resolution
 
 def build_feature_sets(rank,fa,gb,mitos_paths,strict=False):
     merged={};audit=[];ambiguous=[]
@@ -140,7 +148,10 @@ def main():
     if outroot in {Path("block_results_v6").resolve(),Path("block_results_padded_v1").resolve()}:
         p.error("Do not use existing output folders")
     aliases=load_aliases(a.gene_aliases)
-    gb,unmapped,invalid=load_genbank_csv(a.genbank_annotations,aliases)
+    human=list(base.fasta(a.human_fasta))[0][1]
+    reference_features=load_human_genbank(a.human_genbank,human,base.Feature,base.EXPECTED)
+    reference=[(g,reference_features[g].strand) for g in sorted(reference_features,key=lambda g:reference_features[g].start)]
+    gb,unmapped,invalid,resolution=load_genbank_csv(a.genbank_annotations,aliases,reference)
     if not gb:raise ValueError("No recognized GenBank annotation rows. Check aliases and Organism names.")
     with open(a.mitos2_summary,newline="") as h:
         mitos={base.norm(r["species"]):r["result_gff"] for r in csv.DictReader(h,delimiter="\t") if r.get("result_gff")}
@@ -160,6 +171,8 @@ def main():
         base.write_tsv(audit_dir/"unmapped_gene_names.tsv",unmapped,
                        ["row","species","raw_gene"])
         base.write_tsv(audit_dir/"invalid_rows.tsv",invalid,["row","reason"])
+        base.write_tsv(audit_dir/"gene_order_resolutions.tsv",resolution,
+                       ["organism_key","species","row","candidates","status","assigned","supported","n_best_assignments"])
         # The existing run() code checks that each nonhuman species has a
         # 'GFF' path. Use the actual FASTA as an existing path and substitute
         # the merged in-memory feature map at read_gff(). The original modules
