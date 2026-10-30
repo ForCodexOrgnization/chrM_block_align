@@ -109,6 +109,9 @@ def build_feature_sets(rank,fa,gb,mitos_paths,strict=False):
         for gene,n in amb_gb.items():ambiguous.append((rank,name,gene,n,"genbank"))
         for gene,n in amb_mitos.items():ambiguous.append((rank,name,gene,n,"mitos2"))
         merged[key]=chosen
+    matched=sum(1 for row in audit if row[3]=="genbank")
+    LOG.info("%s: %d genes assigned from GenBank; %d species with annotation records",rank,matched,len(gb))
+    if matched==0:raise ValueError(f"No GenBank genes matched rank {rank}. Check species names and annotation coordinate file.")
     if strict and any(r[3] in ("missing","ambiguous_genbank") for r in audit):
         raise ValueError("Strict annotation validation failed; see annotation_source_audit.tsv")
     return merged,audit,ambiguous
@@ -161,10 +164,6 @@ def main():
         # 'GFF' path. Use the actual FASTA as an existing path and substitute
         # the merged in-memory feature map at read_gff(). The original modules
         # and their on-disk files remain unchanged.
-        placeholder={k:str(fa) for k in selected}
-        def merged_reader(path,length):
-            key=None
-            raise RuntimeError("Reader should be called using species-specific proxies")
         # Put a species key in a lightweight proxy path and intercept its
         # content; selected annotations are already prepared above.
         proxy_dir=audit_dir/"feature_proxies";proxy_dir.mkdir(exist_ok=True)
