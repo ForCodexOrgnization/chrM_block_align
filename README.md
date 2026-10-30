@@ -171,3 +171,17 @@ squeue -u "$USER"
 
 Outputs are isolated in `block_results_padded_v1/pad50/<rank>/` and `block_results_padded_v1/pad100/<rank>/`. Existing validated output is skipped. Partially completed output causes that task to stop without overwriting it, so review any error log before resubmission. Old `block_results_v6/` results are unchanged. Each concurrent task requests 4 CPUs, 96 GiB of RAM, and up to 3 days; confirm these are allowed by your HPC partition. Higher ranks may take substantially longer, and the padded strategy is still experimental.
 
+
+### Four-method all-rank stratified diagnostics
+
+The **read-only** `analyze_four_way_diagnostics.py` compares original CI, v6 gene-only, pad50 and pad100, using shared ClinVar/MITOMAP-labeled variants at every rank. It produces genome-wide, gene-type (CDS/tRNA/rRNA/intergenic), nearest-human-gene-boundary (0–5, 6–25, 26–100, >100 bp), and **within-gene** pathogenicity concordance AUC (only positive/negative variant pairs from the same gene; weighted by eligible pair counts). All 6 pairwise method effects use a **paired position-cluster bootstrap**, with 95% percentile CIs. Sparse groups (<5 positive or <5 negative) are marked insufficient rather than assigned AUC values.
+
+It also plots position-level mean absolute CI changes (gene boundary, other gene positions, intergenic) and padded-flank eligibility from each rank's `flank_context_qc.tsv`. The eligibility denominator is *annotated gene/species pairs*, not all species and not aligned bases. Position categories use human GenBank annotations; overlapping genes are assigned to tRNA before rRNA before CDS for grouping. These diagnostics are exploratory, not independent verification of orthology.
+
+```bash
+git pull origin main
+mkdir -p logs
+sbatch run_four_way_diagnostics.slurm
+```
+
+Outputs: `block_results_padded_v1/four_way_diagnostics/` with `stratified_four_way_auc.csv`, `stratified_four_way_bootstrap.csv`, `position_ci_change_by_region.csv`, `flank_eligibility_by_rank.csv`, and seven+ PNG figures. The initial four-way genome-wide ROC from `compare_all_ranks_padding_roc.py` remains separate.
