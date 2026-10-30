@@ -185,3 +185,21 @@ sbatch run_four_way_diagnostics.slurm
 ```
 
 Outputs: `block_results_padded_v1/four_way_diagnostics/` with `stratified_four_way_auc.csv`, `stratified_four_way_bootstrap.csv`, `position_ci_change_by_region.csv`, `flank_eligibility_by_rank.csv`, and seven+ PNG figures. The initial four-way genome-wide ROC from `compare_all_ranks_padding_roc.py` remains separate.
+
+### Experimental GenBank + MITOS2 block pipeline (separate from current methods)
+
+This new **independent** pipeline uses GenBank gene-coordinate annotations where available, MITOS2 gene/rRNA coordinates as fallback, and does **not use tRNAscan**. The reference human always uses the canonical 16,569-bp human GenBank (`data/sequence.gb`). All gene names are mapped through the uploaded synonym table `genefiltfinal5_2026_09_24.csv` (canonical names are columns, alternate names are cells). **Two distinct CSV files are required**:
+
+1. `data/genefiltfinal5_2026_09_24.csv`: the supplied 92-row gene synonym table (copy/upload to McCleary; this file is not automatically committed).
+2. `data/kingdom_genes_v2.csv`: export the *actual* GenBank feature/coordinate worksheet shown in the screenshot as CSV. It must contain `Organism`, `Gene`, `start`, `end`, `strand` and ideally `acc`. The synonym CSV by itself has **no positions** and cannot replace this file. Coordinates are assumed 1-based inclusive and in the same circular sequence orientation/origin as each `data/unrot_fasta/{rank}_chrm.faa`; if not, perform sequence-origin mapping first. Organism values must match rank FASTA organism names after punctuation normalization. Multiple accessions for one organism require manual resolution before use, otherwise ambiguous loci are excluded.
+
+```bash
+git pull origin main
+mkdir -p data logs
+# copy BOTH CSVs to data/ first
+sbatch run_genbank_mitos_all_ranks.slurm
+```
+
+This submits ten rank tasks, each sequentially running gene-only, pad50, pad100. Outputs: `block_results_genbank_mitos_v1/{gene_only,pad50,pad100}/{rank}` with stitched alignment, coordinate map, method-specific QC; standard validation and conservation summaries are produced when all three methods complete. Annotation provenance: `block_results_genbank_mitos_v1/annotation_qc/{rank}/annotation_source_audit.tsv`, `ambiguous_gene_annotations.tsv`, `unmapped_gene_names.tsv`, `invalid_rows.tsv`. Run these as **experimental** results; compare their gene coverage and coordinate consistency against the original MITOS2+tRNAscan pipeline before scientific interpretation.
+
+**Safety:** The original `chrM_block_align.py`, `chrM_block_align_padded.py`, all prior output folders, and their SLURM launchers are unchanged. This script calls the original methods with new in-memory annotation features, without modifying them. Existing output directories are not overwritten. No species/genome rotations are inferred by the script; incorrect GenBank-to-FASTA coordinate origin would invalidate alignment even if structural checks pass.
