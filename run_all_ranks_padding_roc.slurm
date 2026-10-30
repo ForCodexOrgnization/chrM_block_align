@@ -15,6 +15,7 @@ PYTHON=/vast/palmer/home.mccleary/njl27/shared/mt_calling_inputs/required_softwa
 "${PYTHON}" compare_all_ranks_padding_roc.py \
  --old-csv data/2026_10_10_mito_cons_anns_main.csv \
  --padded-dir block_results_padded_v1 \
+ --gene-only-dir block_results_v6 \
  --metric CI_MSA \
  --bootstrap-reps 1000 \
  --out-dir block_results_padded_v1/all_ranks_padding_roc
