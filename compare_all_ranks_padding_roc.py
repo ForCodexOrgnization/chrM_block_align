@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Genome-wide ROC for original, pad50 and pad100 CI across all ten ranks.
+"""Genome-wide ROC for original, block v6, pad50 and pad100 CI across all ten ranks.
 
 Shared complete-case ClinVar/MITOMAP labeled variants; paired position-cluster
 bootstrap for differences. No alignment or conservation files are changed.
@@ -12,10 +12,10 @@ from sklearn.metrics import roc_auc_score,roc_curve
 from compare_old_new_ci import RANKS,read_old,read_new_rank
 from analyze_ci_diagnostics import POSITIVE
 
-METHODS=("original","pad50","pad100")
-COMPARISONS=(("pad50","original"),("pad100","original"),("pad100","pad50"))
+METHODS=("original","gene_only","pad50","pad100")
+COMPARISONS=(("gene_only","original"),("pad50","original"),("pad100","original"),("pad50","gene_only"),("pad100","gene_only"),("pad100","pad50"))
 
-def load(old_csv,padded_dir,metric):
+def load(old_csv,padded_dir,gene_only_dir,metric):
     d=read_old(old_csv)
     clin=d.clinvar_interp_new.fillna("").astype(str).str.strip()
     mito=d.mitomap_status_new.fillna("").astype(str)
@@ -26,6 +26,13 @@ def load(old_csv,padded_dir,metric):
     d=d.drop_duplicates(subset=["POS","REF","ALT","label"])
     for rank in RANKS:
         d=d.rename(columns={f"{rank}_rot_ref":f"{rank}_original"})
+        base_path=Path(gene_only_dir)/rank/"conservation"/"conservation_ci.csv"
+        if not base_path.exists():raise FileNotFoundError(base_path)
+        baseline=pd.read_csv(base_path,usecols=["Position",metric])
+        if len(baseline)!=16569 or baseline.Position.nunique()!=16569 or not baseline.Position.between(1,16569).all():
+            raise ValueError(f"Invalid 16569-position CI table: {base_path}")
+        baseline=baseline.rename(columns={"Position":"POS",metric:f"{rank}_gene_only"})
+        d=d.merge(baseline,on="POS",how="left",validate="many_to_one")
         for pad in ("pad50","pad100"):
             path=Path(padded_dir)/pad/rank/"conservation"/"conservation_ci.csv"
             if not path.exists():raise FileNotFoundError(path)
@@ -45,6 +52,7 @@ def main():
     p=argparse.ArgumentParser()
     p.add_argument("--old-csv",default="data/2026_10_10_mito_cons_anns_main.csv")
     p.add_argument("--padded-dir",default="block_results_padded_v1")
+    p.add_argument("--gene-only-dir",default="block_results_v6")
     p.add_argument("--metric",choices=["CI_MSA","CI_callable"],default="CI_MSA")
     p.add_argument("--bootstrap-reps",type=int,default=1000)
     p.add_argument("--seed",type=int,default=20261030)
@@ -52,7 +60,7 @@ def main():
     a=p.parse_args()
     if a.bootstrap_reps<1:p.error("bootstrap-reps must be positive")
     out=Path(a.out_dir);out.mkdir(parents=True,exist_ok=True)
-    d=load(a.old_csv,a.padded_dir,a.metric)
+    d=load(a.old_csv,a.padded_dir,a.gene_only_dir,a.metric)
     d.to_csv(out/"shared_labeled_variants.csv",index=False)
     y=d.label.to_numpy()
     pos,inv=np.unique(d.POS.to_numpy(),return_inverse=True)
@@ -92,10 +100,10 @@ def main():
         rows.append(row)
     for i in range(5):axes[1,i].set_xlabel("False positive rate")
     for i in range(2):axes[i,0].set_ylabel("True positive rate")
-    fig.suptitle("Genome-wide ROC: original vs pad50 vs pad100 (shared variants)")
-    fig.tight_layout();fig.savefig(out/"all_ranks_padding_roc.png",dpi=180);plt.close(fig)
-    pd.DataFrame(rows).to_csv(out/"all_ranks_padding_roc_summary.csv",index=False)
-    pd.DataFrame(boot).to_csv(out/"all_ranks_padding_roc_bootstrap.csv",index=False)
+    fig.suptitle("Genome-wide ROC: original vs gene-only v6 vs pad50 vs pad100")
+    fig.tight_layout();fig.savefig(out/"all_ranks_four_way_roc.png",dpi=180);plt.close(fig)
+    pd.DataFrame(rows).to_csv(out/"all_ranks_four_way_roc_summary.csv",index=False)
+    pd.DataFrame(boot).to_csv(out/"all_ranks_four_way_roc_bootstrap.csv",index=False)
     print(pd.DataFrame(rows).to_string(index=False))
 
 if __name__=="__main__":main()
