@@ -73,7 +73,10 @@ def figure(d,method,out,metric):
         good=np.isfinite(x)&np.isfinite(y)
         x,y=x[good],y[good]
         r,rho=correlations(x,y)
-        ax.hexbin(x,y,gridsize=45,mincnt=1,bins="log",cmap="Blues",extent=(0,100,0,100))
+        if len(x)==0:
+            ax.text(.5,.5,"Not available",transform=ax.transAxes,ha="center",va="center",color="gray")
+        else:
+            ax.hexbin(x,y,gridsize=45,mincnt=1,bins="log",cmap="Blues",extent=(0,100,0,100))
         ax.plot([0,100],[0,100],"--",color="#777777",linewidth=.8)
         ax.text(.04,.96,f"Pearson r = {r:.3f}\nSpearman \u03c1 = {rho:.3f}\nn = {len(x):,}",
                 transform=ax.transAxes,va="top",fontsize=9,
@@ -101,16 +104,25 @@ def main():
     d,conflicts=read_variants(a.annotation_csv)
     conflicts.to_csv(out/"duplicate_variant_score_conflicts.csv",index=False)
     scores={}
+    missing=[]
+    available={rank:{"old"} for rank in RANKS}
     for rank in RANKS:
         scores[f"{rank}_gene"]=d[f"{rank}_ref_gene"].to_numpy(float)
         scores[f"{rank}_old"]=d[f"{rank}_rot_ref"].to_numpy(float)
         for method in NEW_METHODS:
-            s=load_ci(new_ci_path(a,method,rank),a.metric)
+            path=new_ci_path(a,method,rank)
+            if not path.is_file():
+                print(f"[SKIP] {rank}/{method}: missing {path}")
+                missing.append(dict(rank=rank,method=method,path=str(path),reason="missing_ci_table"))
+                scores[f"{rank}_{method}"]=np.full(len(d),np.nan)
+                continue
+            s=load_ci(path,a.metric)
             scores[f"{rank}_{method}"]=d.POS.map(s).to_numpy(float)
-    # Same variants for all 7 methods within a rank; no misleading differing N.
+            available[rank].add(method)
+    # Compare on the same variant cohort for AVAILABLE methods within each rank.
     shared={}
     for rank in RANKS:
-        rank_cols=[f"{rank}_gene"]+[f"{rank}_{m}" for m in METHODS]
+        rank_cols=[f"{rank}_gene"]+[f"{rank}_{m}" for m in METHODS if m in available[rank]]
         ok=np.ones(len(d),dtype=bool)
         for col in rank_cols:ok&=np.isfinite(scores[col])
         shared[rank]=ok
@@ -123,17 +135,19 @@ def main():
             col=f"{rank}_{suffix}"
             paired[col]=np.where(shared[rank],scores[col],np.nan)
     plotted=pd.DataFrame(paired)
+    pd.DataFrame(missing,columns=["rank","method","path","reason"]).to_csv(out/"missing_ci_tables.csv",index=False)
     summary=[]
     for method in METHODS:
         figure(plotted,method,out,a.metric)
         for rank in RANKS:
-            ok=shared[rank]
+            ok=shared[rank] if method in available[rank] else np.zeros(len(d),dtype=bool)
             x=scores[f"{rank}_gene"][ok]
             y=scores[f"{rank}_{method}"][ok]
             r,rho=correlations(x,y)
             summary.append(dict(rank=rank,method=method,n_variants=int(ok.sum()),
                                 pearson_r=r,spearman_rho=rho,
-                                method_metric="original" if method=="old" else a.metric))
+                                method_metric="original" if method=="old" else a.metric,
+                                status="available" if method in available[rank] else "missing_ci_table"))
     table=pd.DataFrame(summary)
     old=table[table.method=="old"].set_index("rank")
     table["delta_pearson_vs_old"]=table.apply(lambda row:row.pearson_r-old.loc[row["rank"],"pearson_r"],axis=1)
@@ -194,5 +208,6 @@ def main():
                     dpi=220,bbox_inches="tight")
     plt.close(fig)
     print(f"Saved seven 10-panel figures, grouped correlation bars, and summaries to {out}")
+    print(f"Missing rank/method CI tables skipped: {len(missing)}; see missing_ci_tables.csv")
 
 if __name__=="__main__":main()
