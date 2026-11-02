@@ -138,6 +138,7 @@ def main():
     p.add_argument("--ranks",nargs="+",default=["class"])
     p.add_argument("--approaches",nargs="+",choices=["gene_only","pad50","pad100"],
                    default=["gene_only","pad50","pad100"])
+    p.add_argument("--resume-incomplete",action="store_true",help="Reuse validated existing MAFFT caches in an incomplete rank; never overwrite completed stitched output")
     p.add_argument("--threads",type=int,default=4)
     p.add_argument("--mafft",default="mafft")
     p.add_argument("--max-flank-bp",type=int,default=2500)
@@ -196,7 +197,10 @@ def main():
         for approach in a.approaches:
             target=outroot/approach/rank
             if target.exists() and any(target.iterdir()):
-                raise FileExistsError(f"Refusing to overwrite existing results: {target}")
+                stitched=target/(rank+"_stitched_aln.fasta")
+                if not a.resume_incomplete or stitched.exists():
+                    raise FileExistsError(f"Refusing to overwrite existing results: {target}; use --resume-incomplete only when no stitched alignment exists")
+                LOG.info("Resuming incomplete %s/%s using validated MAFFT caches",approach,rank)
             args=SimpleNamespace(output_dir=str(outroot/approach),
                  human_fasta=a.human_fasta,human_genbank=a.human_genbank,
                  threads=a.threads,mafft=a.mafft,
