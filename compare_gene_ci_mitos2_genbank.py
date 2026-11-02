@@ -155,6 +155,44 @@ def main():
     fig.savefig(out/"pearson_comparison_all_methods.png",dpi=200,bbox_inches="tight")
     fig.savefig(out/"pearson_comparison_all_methods.pdf",bbox_inches="tight")
     plt.close(fig)
-    print(f"Saved seven 10-panel figures and paired correlation summaries to {out}")
+    # Compact grouped bar summary: seven comparable methods per rank.
+    labels={
+        "old":"Original",
+        "mitos2_gene_only":"MITOS2 gene-only",
+        "mitos2_pad50":"MITOS2 pad50",
+        "mitos2_pad100":"MITOS2 pad100",
+        "genbank_gene_only":"GenBank gene-only",
+        "genbank_pad50":"GenBank pad50",
+        "genbank_pad100":"GenBank pad100",
+    }
+    palette=["#68717D","#2B6A9A","#6EA5C3","#A9CFDA",
+             "#B77931","#D7A35D","#E9C88D"]
+    x=np.arange(len(RANKS))
+    width=.112
+    fig,axes=plt.subplots(2,1,figsize=(19,10),sharex=True,layout="constrained")
+    for ax,(metric,label) in zip(axes,(
+            ("pearson_r","Pearson r"),("spearman_rho","Spearman rho"))):
+        matrix=table.pivot(index="rank",columns="method",values=metric).reindex(RANKS)
+        for i,method in enumerate(METHODS):
+            vals=matrix[method].to_numpy(dtype=float)
+            offset=(i-(len(METHODS)-1)/2)*width
+            ax.bar(x+offset,vals,width=width*.94,color=palette[i],
+                   label=labels[method],edgecolor="white",linewidth=.3)
+        ax.set_ylim(0,1.03)
+        ax.set_ylabel(label+" with gene CI")
+        ax.set_yticks(np.arange(0,1.01,.2))
+        ax.grid(axis="y",alpha=.18)
+        ax.set_axisbelow(True)
+        ax.spines[["top","right"]].set_visible(False)
+    axes[-1].set_xticks(x,RANKS,rotation=25,ha="right")
+    handles,legend_labels=axes[0].get_legend_handles_labels()
+    fig.legend(handles,legend_labels,ncol=4,loc="outside upper center",
+               bbox_to_anchor=(.5,1.065),frameon=False)
+    fig.suptitle("chrM CI vs gene CI correlations across ranks",fontsize=15)
+    for ext in ("png","pdf"):
+        fig.savefig(out/f"all_methods_correlation_grouped_bar.{ext}",
+                    dpi=220,bbox_inches="tight")
+    plt.close(fig)
+    print(f"Saved seven 10-panel figures, grouped correlation bars, and summaries to {out}")
 
 if __name__=="__main__":main()
