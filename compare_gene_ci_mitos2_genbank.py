@@ -169,6 +169,23 @@ def main():
     fig.savefig(out/"pearson_comparison_all_methods.png",dpi=200,bbox_inches="tight")
     fig.savefig(out/"pearson_comparison_all_methods.pdf",bbox_inches="tight")
     plt.close(fig)
+    # Matching Spearman rank-correlation line plot; preserve the Pearson figure.
+    spearman=table.pivot(index="rank",columns="method",values="spearman_rho").reindex(RANKS)
+    spearman.to_csv(out/"spearman_comparison_matrix.csv")
+    fig,ax=plt.subplots(figsize=(14,5))
+    xs=np.arange(len(RANKS))
+    for method in METHODS:
+        row=spearman[method].to_numpy(dtype=float)
+        ax.plot(xs,row,marker="o",markersize=4,label=method.replace("_"," "))
+    ax.set_xticks(xs,RANKS,rotation=30,ha="right")
+    ax.set_ylabel("Spearman rho with gene CI")
+    ax.set_title("chrM CI vs gene CI: original, MITOS2 and GenBank methods")
+    ax.grid(axis="y",alpha=.25)
+    ax.legend(ncol=4,fontsize=8,loc="lower center",bbox_to_anchor=(.5,-.35))
+    fig.tight_layout()
+    fig.savefig(out/"spearman_comparison_all_methods.png",dpi=200,bbox_inches="tight")
+    fig.savefig(out/"spearman_comparison_all_methods.pdf",bbox_inches="tight")
+    plt.close(fig)
     # Compact grouped bar summary: seven comparable methods per rank.
     labels={
         "old":"Original",
