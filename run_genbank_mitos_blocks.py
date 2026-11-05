@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Isolated GenBank-first + MITOS2-fallback chrM block pipeline.
+"""Isolated GenBank CDS/rRNA + tRNAscan-SE tRNA chrM block pipeline.
 
 Input annotation CSV requires: acc, Organism, Gene, start, end, strand.
 Alias table: the 38-column genefiltfinal5_2026_09_24.csv (columns are
@@ -7,7 +7,7 @@ canonical gene identities; cells are alternate GenBank names).
 
 Gene-only runs the existing baseline stitcher; pad50/pad100 run the
 existing padded stitcher. Both receive the same merged annotation source,
-which never reads tRNAscan. Human GenBank coordinates always take priority.
+with no MITOS2 fallback. Human GenBank coordinates always take priority.
 """
 import argparse,csv,collections,logging,re
 from pathlib import Path
@@ -17,7 +17,7 @@ import chrM_block_align_padded as padded
 from human_genbank import load_human_genbank
 import resolve_gene_order_annotations as go
 
-LOG=logging.getLogger("genbank_mitos")
+LOG=logging.getLogger("genbank_trnascan")
 COLMAP={"nd1":"ND1","nd2":"ND2","nd3":"ND3","nd4":"ND4","nd4l":"ND4L",
         "nd5":"ND5","nd6":"ND6","cox1":"CO1","cox2":"CO2","cox3":"CO3",
         "cyb":"CYB","atp6":"ATP6","atp8":"ATP8","rnr1":"RNR1","rnr2":"RNR2"}
@@ -82,13 +82,15 @@ def load_genbank_csv(path,aliases,reference):
                 by_species[species_key].append((gene,e[1],e[2],e[3],e[4],e[5]))
     return by_species,unmapped,invalid,resolution
 
-def build_feature_sets(rank,fa,gb,mitos_paths,strict=False):
+def build_feature_sets(rank,fa,gb,trnas,strict=False):
+    """Only GenBank CDS/rRNA and tRNAscan-SE tRNAs; never fill from MITOS2."""
     merged={};audit=[];ambiguous=[]
     for name,seq in base.fasta(fa):
         key=base.norm(name);L=len(seq)
         if key=="homosapiens":continue
         genbank=[]
         for gene,start,end,strand,accession,idx in gb.get(key,[]):
+            if gene not in (base.CDS|base.RRNA):continue
             if start<1 or end<1 or start>L or end>L:
                 audit.append((rank,name,gene,"genbank","invalid_coordinates",accession,idx))
                 continue
@@ -98,29 +100,23 @@ def build_feature_sets(rank,fa,gb,mitos_paths,strict=False):
                 continue
             genbank.append(base.Feature(gene,a,b,strand))
         chosen_gb,amb_gb=base.pick_features(genbank,L)
-        mitos=[]
-        gff=mitos_paths.get(key)
-        if gff and Path(gff).exists():
-            mitos=base.read_gff(gff,L)
-        chosen_mitos,amb_mitos=base.pick_features(mitos,L)
+        chosen_trnas,amb_trnas=base.pick_features(trnas.get(key,[]),L)
+        chosen_trnas={g:f for g,f in chosen_trnas.items() if g in base.TRNA}
         chosen=dict(chosen_gb)
-        for gene,feature in chosen_mitos.items():
-            if gene not in chosen and gene not in amb_gb:
-                chosen[gene]=feature
-        for gene in base.EXPECTED:
-            if gene in chosen_gb:src="genbank"
-            elif gene in chosen:src="mitos2_fallback"
-            elif gene in amb_gb:src="ambiguous_genbank"
-            elif gene in amb_mitos:src="ambiguous_mitos2"
-            else:src="missing"
-            audit.append((rank,name,gene,src,"selected" if gene in chosen else "excluded","", ""))
+        chosen.update(chosen_trnas)
+        for gene in sorted(base.EXPECTED):
+            if gene in base.TRNA:
+                src="trnascan" if gene in chosen_trnas else ("ambiguous_trnascan" if gene in amb_trnas else "missing")
+            else:
+                src="genbank" if gene in chosen_gb else ("ambiguous_genbank" if gene in amb_gb else "missing")
+            audit.append((rank,name,gene,src,"selected" if gene in chosen else "excluded","",""))
         for gene,n in amb_gb.items():ambiguous.append((rank,name,gene,n,"genbank"))
-        for gene,n in amb_mitos.items():ambiguous.append((rank,name,gene,n,"mitos2"))
+        for gene,n in amb_trnas.items():ambiguous.append((rank,name,gene,n,"trnascan"))
         merged[key]=chosen
     matched=sum(1 for row in audit if row[3]=="genbank")
-    LOG.info("%s: %d genes assigned from GenBank; %d species with annotation records",rank,matched,len(gb))
-    if matched==0:raise ValueError(f"No GenBank genes matched rank {rank}. Check species names and annotation coordinate file.")
-    if strict and any(r[3] in ("missing","ambiguous_genbank") for r in audit):
+    LOG.info("%s: %d CDS/rRNA genes assigned from GenBank; %d GenBank species",rank,matched,len(gb))
+    if matched==0:raise ValueError(f"No GenBank CDS/rRNA genes matched rank {rank}. Check names and coordinates.")
+    if strict and any(r[3] in ("missing","ambiguous_genbank","ambiguous_trnascan") for r in audit):
         raise ValueError("Strict annotation validation failed; see annotation_source_audit.tsv")
     return merged,audit,ambiguous
 
@@ -131,10 +127,10 @@ def main():
     p.add_argument("--gene-aliases",required=True,
                    help="genefiltfinal5_2026_09_24.csv synonym table")
     p.add_argument("--fasta-dir",default="data/unrot_fasta")
-    p.add_argument("--mitos2-summary",default="data/mitos2_species_summary.tsv")
+    p.add_argument("--trnascan-csv",default="data/consolidated_trnascan-2.csv")
     p.add_argument("--human-fasta",default="data/Humans_mtdna.fasta")
     p.add_argument("--human-genbank",default="data/sequence.gb")
-    p.add_argument("--output-dir",default="block_results_genbank_mitos_v1")
+    p.add_argument("--output-dir",default="block_results_genbank_trnascan_v1")
     p.add_argument("--ranks",nargs="+",default=["class"])
     p.add_argument("--approaches",nargs="+",choices=["gene_only","pad50","pad100"],
                    default=["gene_only","pad50","pad100"])
@@ -154,8 +150,7 @@ def main():
     reference=[(g,reference_features[g].strand) for g in sorted(reference_features,key=lambda g:reference_features[g].start)]
     gb,unmapped,invalid,resolution=load_genbank_csv(a.genbank_annotations,aliases,reference)
     if not gb:raise ValueError("No recognized GenBank annotation rows. Check aliases and Organism names.")
-    with open(a.mitos2_summary,newline="") as h:
-        mitos={base.norm(r["species"]):r["result_gff"] for r in csv.DictReader(h,delimiter="\t") if r.get("result_gff")}
+    trnas=base.read_trnas(a.trnascan_csv)
     orig_base_read=base.read_gff
     orig_padded_read=padded.read_gff
     orig_base_trnas=base.read_trnas
@@ -163,7 +158,7 @@ def main():
     for rank in a.ranks:
         fa=Path(a.fasta_dir)/(rank+"_chrm.faa")
         if not fa.exists():raise FileNotFoundError(fa)
-        selected,audit,ambiguous=build_feature_sets(rank,fa,gb,mitos)
+        selected,audit,ambiguous=build_feature_sets(rank,fa,gb,trnas)
         audit_dir=outroot/"annotation_qc"/rank;audit_dir.mkdir(parents=True,exist_ok=True)
         base.write_tsv(audit_dir/"annotation_source_audit.tsv",audit,
                        ["rank","species","gene","source","status","accession","row"])
