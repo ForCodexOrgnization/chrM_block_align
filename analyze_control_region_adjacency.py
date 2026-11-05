@@ -9,7 +9,7 @@ Reports:
 genes between the two genes. It does NOT establish physical/biological absence of
 unannotated homologs or identify the true control region by sequence homology.
 
-Use --pipeline genbank for the GenBank-first + MITOS2-fallback feature selection
+Use --pipeline genbank for the GenBank CDS/rRNA + tRNAscan-SE tRNA feature selection
 used by run_genbank_mitos_blocks.py, or --pipeline mitos2 for the older
 MITOS2 + tRNAscan-SE annotation selection of chrM_block_align_padded.py.
 
@@ -53,11 +53,9 @@ def load_gff_summary(path):
 
 def features_for_rank(rank,records,a,genbank=None,mitos=None,trnas=None):
     if a.pipeline=="genbank":
-        # Same feature-merging routine as the GenBank-first stitcher. It picks
-        # GenBank annotations first, then MITOS2 for unresolved gene identities,
-        # and intentionally does not use tRNAscan-SE.
+        # Same strict source assignment as the GenBank+tRNAscan stitcher.
         fasta_path=Path(a.fasta_dir)/f"{rank}_chrm.faa"
-        selected,_,_=gb_pipeline.build_feature_sets(rank,fasta_path,genbank,mitos)
+        selected,_,_=gb_pipeline.build_feature_sets(rank,fasta_path,genbank,trnas)
         return selected
     selected={}
     for name,seq in records:
@@ -177,7 +175,7 @@ def main():
         reforder=[(gene,human_features[gene].strand)
                   for gene in padded.ordered(human_features,16569)]
         gb,_,_,_=gb_pipeline.load_genbank_csv(a.genbank_annotations,aliases,reforder)
-        trnas=None
+        trnas=base.read_trnas(a.trnascan_csv)
     else:
         gb=None
         trnas=base.read_trnas(a.trnascan_csv)
