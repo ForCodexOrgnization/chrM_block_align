@@ -14,6 +14,6 @@ PYTHON="${PYTHON:-/vast/palmer/home.mccleary/njl27/shared/mt_calling_inputs/requ
 # Uses resolved canonical annotations exactly like the existing pipelines.
 # No MAFFT or cached MSA is needed; does not modify alignment outputs.
 "${PYTHON}" analyze_control_region_adjacency.py --pipeline genbank \
-  --output-dir control_region_adjacency_qc_genbank
+  --output-dir control_region_adjacency_qc_genbank_trnascan
 "${PYTHON}" analyze_control_region_adjacency.py --pipeline mitos2 \
   --output-dir control_region_adjacency_qc_mitos2
