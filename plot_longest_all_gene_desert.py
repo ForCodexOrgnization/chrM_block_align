@@ -94,22 +94,29 @@ def main():
         fig.savefig(out/("longest_gap_OriH_overlap_by_length."+ext),
                     dpi=220)
     plt.close(fig)
-    # Cumulative validation by increasing upper length bin. Each species
-    # contributes its ONE longest gene-free interval, and only species with an
-    # OriH prediction enter the denominator. Bins are cumulative <= upper edge.
+    # Genuine cumulative distribution. Each rank's denominator is the
+    # TOTAL number of species with an OriH prediction, fixed across bins.
+    # Each species contributes ONE (longest gene-free) interval.
+    # Values are cumulative contributions <= the upper edge of the length bin.
+    # Thus all three series are nondecreasing, and the "all species" CDF
+    # ends at 100%, while overlap/containment end at their overall fractions.
     cumulative=[]
     for rank in RANKS:
         r=data[data["rank"]==rank].reset_index(drop=True)
+        denom=int(r["n_with_OriH_prediction"].sum())
         total=r["n_with_OriH_prediction"].cumsum()
         hits=r["n_overlapping"].cumsum()
         full=r["n_fully_contained"].cumsum()
         for j,label in enumerate(LABELS):
-            n=int(total.iloc[j])
-            cumulative.append(dict(rank=rank,length_bin=label,
-                n_with_OriH_prediction=n,
-                n_overlapping=int(hits.iloc[j]),n_fully_contained=int(full.iloc[j]),
-                pct_overlap_ge1bp=100*hits.iloc[j]/n if n else np.nan,
-                pct_fully_contained=100*full.iloc[j]/n if n else np.nan))
+            cumulative.append(dict(
+                rank=rank,length_bin=label,
+                n_rank_species_with_OriH=denom,
+                cumulative_n_species=int(total.iloc[j]),
+                cumulative_n_overlapping=int(hits.iloc[j]),
+                cumulative_n_fully_contained=int(full.iloc[j]),
+                cumulative_pct_all=100*total.iloc[j]/denom if denom else np.nan,
+                cumulative_pct_overlap_ge1bp=100*hits.iloc[j]/denom if denom else np.nan,
+                cumulative_pct_fully_contained=100*full.iloc[j]/denom if denom else np.nan))
     cumulative=pd.DataFrame(cumulative)
     cumulative.to_csv(out/"longest_gap_OriH_cumulative_by_length.tsv",
                       sep="\t",index=False)
@@ -117,9 +124,11 @@ def main():
     for i,(ax,rank) in enumerate(zip(axes.flat,RANKS)):
         r=cumulative[cumulative["rank"]==rank]
         x=np.arange(len(LABELS))
-        ax.plot(x,r.pct_overlap_ge1bp,marker="o",ms=3,lw=1.6,
+        ax.plot(x,r.cumulative_pct_all,marker=".",ms=4,lw=1.4,
+                color="#888888",ls="--",label="All OriH-annotated species")
+        ax.plot(x,r.cumulative_pct_overlap_ge1bp,marker="o",ms=3,lw=1.6,
                 color="#2D759E",label=">=1 bp overlap")
-        ax.plot(x,r.pct_fully_contained,marker="s",ms=3,lw=1.6,
+        ax.plot(x,r.cumulative_pct_fully_contained,marker="s",ms=3,lw=1.6,
                 color="#B77B34",label="100% containment")
         ax.set_title(rank,fontsize=12,pad=8)
         ax.set_xlim(-.3,len(LABELS)-.7);ax.set_ylim(0,103)
@@ -131,12 +140,12 @@ def main():
         ax.grid(axis="y",alpha=.15)
         ax.set_axisbelow(True)
         if i%5==0:
-            ax.set_ylabel("Cumulative OriH validation rate (%)",
+            ax.set_ylabel("Cumulative % of OriH-annotated species",
                           fontsize=11,labelpad=8)
     handles,legend_labels=axes.flat[0].get_legend_handles_labels()
-    fig.suptitle("Cumulative OriH validation: longest gene-free interval per species",
+    fig.suptitle("Cumulative longest gene-free interval distribution and OriH support",
                  fontsize=15,y=.985)
-    fig.legend(handles,legend_labels,ncol=2,loc="upper center",
+    fig.legend(handles,legend_labels,ncol=3,loc="upper center",
                bbox_to_anchor=(.5,.952),frameon=False,fontsize=10)
     fig.subplots_adjust(left=.06,right=.99,bottom=.10,top=.88,
                         wspace=.18,hspace=.47)
