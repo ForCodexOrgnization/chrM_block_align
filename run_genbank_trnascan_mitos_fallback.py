@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GenBank-first 37 genes; tRNAscan tRNA and MITOS2 CDS/rRNA fallback pipeline.
+"""Prioritize tRNAscan > GenBank > MITOS2 for tRNAs; GenBank > MITOS2 for CDS/rRNA.
 
 Input annotation CSV requires: acc, Organism, Gene, start, end, strand.
 Alias table: the 38-column genefiltfinal5_2026_09_24.csv (columns are
@@ -7,8 +7,8 @@ canonical gene identities; cells are alternate GenBank names).
 
 Gene-only runs the existing baseline stitcher; pad50/pad100 run the
 existing padded stitcher. Both receive the same merged annotation source,
-with tRNAscan fallback for missing tRNAs and MITOS2 fallback for missing CDS/rRNA.
-Ambiguous GenBank loci are left unresolved, not silently overridden.
+with prioritized source-specific fallback. Ambiguous loci at the preferred
+source are flagged and withheld rather than silently substituted.
 Human GenBank coordinates always take priority.
 """
 import argparse,csv,collections,logging,re
@@ -84,11 +84,49 @@ def load_genbank_csv(path,aliases,reference):
                 by_species[species_key].append((gene,e[1],e[2],e[3],e[4],e[5]))
     return by_species,unmapped,invalid,resolution
 
-def build_feature_sets(rank,fa,gb,trnas,mitos_paths,strict=False):
-    """GenBank for all 37; tRNAscan for missing tRNAs; MITOS2 for missing CDS/rRNA.
+def canonical_mitos_trna(raw):
+    """MITOS2 standard trnX / trnL1 / trnS2 labels, optionally with anticodon."""
+    name=str(raw or "").strip()
+    name=re.sub(r"^(gene_|transcript_|mt[_-])","",name,flags=re.I)
+    name=name.split("(")[0]
+    name=re.sub(r"_[0-9]+$","",name)
+    name=re.sub(r"[^a-zA-Z0-9]","",name).upper()
+    m=re.fullmatch(r"TRN([ARNDCQEGHILKMFPSTWYV])([12]?)",name)
+    if not m:return None
+    aa,suffix=m.groups()
+    if aa in ("L","S") and not suffix:
+        return None  # cannot reliably assign the two Leu/Ser isotypes
+    if aa not in ("L","S") and suffix:
+        return None
+    gene="TRN"+aa+suffix
+    return gene if gene in base.TRNA else None
 
-    Missing means no unambiguous valid GenBank locus. An ambiguous GenBank
-    locus is withheld rather than superseded by an alternate annotation.
+def read_mitos_trnas(path,length):
+    """Read MITOS2 tRNA gene features, ignoring transcript/exon duplicates."""
+    features=[]
+    with open(path,encoding="utf-8",errors="replace") as fh:
+        for line in fh:
+            if not line.strip() or line.startswith("#"):continue
+            parts=line.rstrip("\n").split("\t")
+            if len(parts)<9 or parts[2].lower() not in ("gene","trna"):continue
+            attrs=dict(x.split("=",1) for x in parts[8].split(";") if "=" in x)
+            gene=None
+            for col in ("Name","gene_id","ID"):
+                gene=canonical_mitos_trna(attrs.get(col,""))
+                if gene:break
+            if not gene:continue
+            try:
+                a,b=int(parts[3])-1,int(parts[4])
+            except ValueError:continue
+            if not (0<=a<length and a<b and b-a<=length and parts[6] in ("+","-")):
+                continue
+            features.append(base.Feature(gene,a,b,parts[6]))
+    return features
+
+def build_feature_sets(rank,fa,gb,trnas,mitos_paths,strict=False):
+    """tRNA: tRNAscan > GenBank > MITOS2; CDS/rRNA: GenBank > MITOS2.
+
+    An ambiguous preferred-source call is withheld for QC, not replaced.
     """
     merged={};audit=[];ambiguous=[]
     for name,seq in base.fasta(fa):
@@ -109,40 +147,45 @@ def build_feature_sets(rank,fa,gb,trnas,mitos_paths,strict=False):
         chosen_trnas,amb_trnas=base.pick_features(trnas.get(key,[]),L)
         chosen_trnas={g:f for g,f in chosen_trnas.items() if g in base.TRNA}
         mitos_gff=mitos_paths.get(key)
-        mitos_features=(base.read_gff(mitos_gff,L)
-                        if mitos_gff and Path(mitos_gff).is_file() else [])
+        mitos_features=[]
+        if mitos_gff and Path(mitos_gff).is_file():
+            # Existing base.read_gff covers MITOS2 CDS/rRNA but NOT tRNAs.
+            mitos_features=base.read_gff(mitos_gff,L)+read_mitos_trnas(mitos_gff,L)
         chosen_mitos,amb_mitos=base.pick_features(mitos_features,L)
-        chosen_mitos={g:f for g,f in chosen_mitos.items() if g in (base.CDS|base.RRNA)}
-        chosen=dict(chosen_gb)
-        sources={g:"genbank" for g in chosen}
+        chosen={}
+        sources={}
         for gene in sorted(base.EXPECTED):
-            if gene in chosen or gene in amb_gb:
-                continue
-            if gene in base.TRNA and gene in chosen_trnas:
-                chosen[gene]=chosen_trnas[gene]
-                sources[gene]="trnascan_fallback"
-            elif gene in (base.CDS|base.RRNA) and gene in chosen_mitos:
-                chosen[gene]=chosen_mitos[gene]
-                sources[gene]="mitos2_fallback"
-        for gene in sorted(base.EXPECTED):
-            if gene in sources:src=sources[gene];status="selected"
-            elif gene in amb_gb:src="ambiguous_genbank";status="excluded"
-            elif gene in base.TRNA and gene in amb_trnas:
-                src="ambiguous_trnascan";status="excluded"
-            elif gene in (base.CDS|base.RRNA) and gene in amb_mitos:
-                src="ambiguous_mitos2";status="excluded"
-            else:src="missing";status="excluded"
-            audit.append((rank,name,gene,src,status,"",""))
-        for gene,n in amb_gb.items():ambiguous.append((rank,name,gene,n,"genbank"))
+            if gene in base.TRNA:
+                priorities=(("trnascan",chosen_trnas,amb_trnas),
+                            ("genbank_fallback",chosen_gb,amb_gb),
+                            ("mitos2_fallback",chosen_mitos,amb_mitos))
+            else:
+                priorities=(("genbank",chosen_gb,amb_gb),
+                            ("mitos2_fallback",chosen_mitos,amb_mitos))
+            status="missing"
+            for src,valid,ambiguous_src in priorities:
+                if gene in ambiguous_src:
+                    status="ambiguous_"+src
+                    break
+                if gene in valid:
+                    chosen[gene]=valid[gene]
+                    sources[gene]=src
+                    status=src
+                    break
+            audit.append((rank,name,gene,status,
+                          "selected" if gene in chosen else "excluded","",""))
+        for gene,n in amb_gb.items():
+            ambiguous.append((rank,name,gene,n,"genbank"))
         for gene,n in amb_trnas.items():
-            if gene not in chosen_gb:ambiguous.append((rank,name,gene,n,"trnascan"))
+            if gene in base.TRNA:
+                ambiguous.append((rank,name,gene,n,"trnascan"))
         for gene,n in amb_mitos.items():
-            if gene not in chosen_gb:ambiguous.append((rank,name,gene,n,"mitos2"))
+            ambiguous.append((rank,name,gene,n,"mitos2"))
         merged[key]=chosen
-    n_gb=sum(row[3]=="genbank" and row[4]=="selected" for row in audit)
+    n_gb=sum(row[3] in ("genbank","genbank_fallback") and row[4]=="selected" for row in audit)
     counts=collections.Counter(row[3] for row in audit if row[4]=="selected")
-    LOG.info("%s: %d GenBank features; tRNAscan fallback %d; MITOS2 fallback %d",
-             rank,n_gb,counts["trnascan_fallback"],counts["mitos2_fallback"])
+    LOG.info("%s: %d GenBank features; tRNAscan primary %d; GenBank tRNA fallback %d; MITOS2 fallback %d",
+             rank,n_gb,counts["trnascan"],counts["genbank_fallback"],counts["mitos2_fallback"])
     if n_gb==0:raise ValueError(f"No GenBank genes matched {rank}; check annotations")
     if strict and any(r[4]=="excluded" for r in audit):
         raise ValueError("Strict annotation validation failed; see annotation_source_audit.tsv")
@@ -159,7 +202,7 @@ def main():
     p.add_argument("--mitos2-summary",default="data/mitos2_species_summary.tsv")
     p.add_argument("--human-fasta",default="data/Humans_mtdna.fasta")
     p.add_argument("--human-genbank",default="data/sequence.gb")
-    p.add_argument("--output-dir",default="block_results_genbank_trnascan_mitos_fallback_v1")
+    p.add_argument("--output-dir",default="block_results_genbank_trnascan_mitos_fallback_v2")
     p.add_argument("--ranks",nargs="+",default=["class"])
     p.add_argument("--approaches",nargs="+",choices=["gene_only","pad50","pad100"],
                    default=["gene_only","pad50","pad100"])
@@ -172,7 +215,8 @@ def main():
     logging.basicConfig(level=logging.INFO,format="%(asctime)s %(levelname)s %(message)s")
     outroot=Path(a.output_dir).resolve()
     if outroot in {Path(x).resolve() for x in ("block_results_v6","block_results_padded_v1",
-            "block_results_genbank_trnascan_v1","block_results_genbank_mitos_v1")}:
+            "block_results_genbank_trnascan_v1","block_results_genbank_mitos_v1",
+            "block_results_genbank_trnascan_mitos_fallback_v1")}:
         p.error("Do not use existing output folders")
     aliases=load_aliases(a.gene_aliases)
     human=list(base.fasta(a.human_fasta))[0][1]
