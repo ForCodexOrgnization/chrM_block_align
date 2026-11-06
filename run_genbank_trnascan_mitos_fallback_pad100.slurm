@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=GB_TRI_FALL100
+#SBATCH --job-name=GB_TRI_FALL200
 #SBATCH --partition=day
 #SBATCH --array=0-9%2
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
 #SBATCH --time=24:00:00
-#SBATCH --output=logs/gb_trifall_pad100_%A_%a.out
-#SBATCH --error=logs/gb_trifall_pad100_%A_%a.err
+#SBATCH --output=logs/gb_trifall_v2_pad100_%A_%a.out
+#SBATCH --error=logs/gb_trifall_v2_pad100_%A_%a.err
 
 set -euo pipefail
 
@@ -21,7 +21,7 @@ RANKS=(
 )
 RANK="${RANKS[${SLURM_ARRAY_TASK_ID}]}"
 
-OUT="block_results_genbank_trnascan_mitos_fallback_v1"
+OUT="block_results_genbank_trnascan_mitos_fallback_v2"
 RDIR="${OUT}/pad100/${RANK}"
 
 # Keep existing completed results intact.
