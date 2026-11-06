@@ -62,19 +62,38 @@ def main():
         ax.grid(axis="y",alpha=.15);ax.set_axisbelow(True)
     fig.suptitle("Longest annotated gene-free interval per species: length distribution")
     save(fig,out,"longest_gap_length_distribution")
-    fig,axes=plt.subplots(2,5,figsize=(23,9),sharey=True)
-    for ax,rank in zip(axes.flat,RANKS):
+    fig,axes=plt.subplots(2,5,figsize=(23,10),sharey=True)
+    # Show representative length bins in each panel; data points for ALL bins
+    # are still plotted. Avoid dense x labels and overlapping shared y labels.
+    tick_idx=[0,2,4,6,8,11]
+    for i,(ax,rank) in enumerate(zip(axes.flat,RANKS)):
         r=data[data["rank"]==rank];x=np.arange(len(LABELS))
         ax.plot(x,r.pct_overlapping,marker="o",ms=3,lw=1.6,color="#2D759E",label="Any overlap")
         ax.plot(x,r.pct_fully_contained,marker="s",ms=3,lw=1.6,color="#B77B34",label="100% containment")
-        ax.set_title(rank);ax.set_ylim(0,103)
-        ax.set_xticks(x,LABELS,rotation=60,ha="right",fontsize=7)
+        ax.set_title(rank,fontsize=12,pad=8)
+        ax.set_xlim(-.3,len(LABELS)-.7);ax.set_ylim(0,103)
+        ax.set_yticks([0,20,40,60,80,100])
+        ax.set_xticks(tick_idx)
+        ax.set_xticklabels([LABELS[j] for j in tick_idx],
+                           rotation=45,ha="right",fontsize=8)
+        ax.tick_params(axis="y",labelsize=9)
         ax.grid(axis="y",alpha=.15)
-    handles,labels=axes.flat[0].get_legend_handles_labels()
-    fig.legend(handles,labels,ncol=2,loc="upper center",bbox_to_anchor=(.5,.967),frameon=False)
-    fig.suptitle("OriH validation of the longest gene-free interval (per rank)")
-    fig.text(.01,.5,"Percentage among species with an OriH prediction",rotation=90,va="center")
-    save(fig,out,"longest_gap_OriH_overlap_by_length")
+        ax.set_axisbelow(True)
+        if i%5==0:
+            ax.set_ylabel("Species with OriH support (%)",fontsize=11,labelpad=8)
+    # Use explicit margins instead of tight_layout, which pushed the long
+    # figure-level y label into the middle of the two panel rows.
+    handles,legend_labels=axes.flat[0].get_legend_handles_labels()
+    fig.suptitle("OriH validation of the longest gene-free interval (per rank)",
+                 fontsize=15,y=.985)
+    fig.legend(handles,legend_labels,ncol=2,loc="upper center",
+               bbox_to_anchor=(.5,.952),frameon=False,fontsize=10)
+    fig.subplots_adjust(left=.06,right=.99,bottom=.10,top=.88,
+                        wspace=.18,hspace=.47)
+    for ext in ("png","pdf"):
+        fig.savefig(out/("longest_gap_OriH_overlap_by_length."+ext),
+                    dpi=220)
+    plt.close(fig)
     # Species-level threshold sensitivity: one longest candidate per species,
     # denominators require an available OriH prediction.
     curves=[]
