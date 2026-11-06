@@ -112,7 +112,7 @@ def main():
                 pct_fully_contained=100*full.iloc[j]/n if n else np.nan))
     cumulative=pd.DataFrame(cumulative)
     cumulative.to_csv(out/"longest_gap_OriH_cumulative_by_length.tsv",
-                      sep="\\t",index=False)
+                      sep="\t",index=False)
     fig,axes=plt.subplots(2,5,figsize=(23,10),sharey=True)
     for i,(ax,rank) in enumerate(zip(axes.flat,RANKS)):
         r=cumulative[cumulative["rank"]==rank]
