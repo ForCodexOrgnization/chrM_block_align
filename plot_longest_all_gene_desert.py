@@ -68,7 +68,7 @@ def main():
     tick_idx=[0,2,4,6,8,11]
     for i,(ax,rank) in enumerate(zip(axes.flat,RANKS)):
         r=data[data["rank"]==rank];x=np.arange(len(LABELS))
-        ax.plot(x,r.pct_overlapping,marker="o",ms=3,lw=1.6,color="#2D759E",label="Any overlap")
+        ax.plot(x,r.pct_overlapping,marker="o",ms=3,lw=1.6,color="#2D759E",label=">=1 bp overlap")
         ax.plot(x,r.pct_fully_contained,marker="s",ms=3,lw=1.6,color="#B77B34",label="100% containment")
         ax.set_title(rank,fontsize=12,pad=8)
         ax.set_xlim(-.3,len(LABELS)-.7);ax.set_ylim(0,103)
@@ -94,6 +94,56 @@ def main():
         fig.savefig(out/("longest_gap_OriH_overlap_by_length."+ext),
                     dpi=220)
     plt.close(fig)
+    # Cumulative validation by increasing upper length bin. Each species
+    # contributes its ONE longest gene-free interval, and only species with an
+    # OriH prediction enter the denominator. Bins are cumulative <= upper edge.
+    cumulative=[]
+    for rank in RANKS:
+        r=data[data["rank"]==rank].reset_index(drop=True)
+        total=r["n_with_OriH_prediction"].cumsum()
+        hits=r["n_overlapping"].cumsum()
+        full=r["n_fully_contained"].cumsum()
+        for j,label in enumerate(LABELS):
+            n=int(total.iloc[j])
+            cumulative.append(dict(rank=rank,length_bin=label,
+                n_with_OriH_prediction=n,
+                n_overlapping=int(hits.iloc[j]),n_fully_contained=int(full.iloc[j]),
+                pct_overlap_ge1bp=100*hits.iloc[j]/n if n else np.nan,
+                pct_fully_contained=100*full.iloc[j]/n if n else np.nan))
+    cumulative=pd.DataFrame(cumulative)
+    cumulative.to_csv(out/"longest_gap_OriH_cumulative_by_length.tsv",
+                      sep="\\t",index=False)
+    fig,axes=plt.subplots(2,5,figsize=(23,10),sharey=True)
+    for i,(ax,rank) in enumerate(zip(axes.flat,RANKS)):
+        r=cumulative[cumulative["rank"]==rank]
+        x=np.arange(len(LABELS))
+        ax.plot(x,r.pct_overlap_ge1bp,marker="o",ms=3,lw=1.6,
+                color="#2D759E",label=">=1 bp overlap")
+        ax.plot(x,r.pct_fully_contained,marker="s",ms=3,lw=1.6,
+                color="#B77B34",label="100% containment")
+        ax.set_title(rank,fontsize=12,pad=8)
+        ax.set_xlim(-.3,len(LABELS)-.7);ax.set_ylim(0,103)
+        ax.set_yticks([0,20,40,60,80,100])
+        ax.set_xticks(tick_idx)
+        ax.set_xticklabels([LABELS[j] for j in tick_idx],
+                           rotation=45,ha="right",fontsize=8)
+        ax.tick_params(axis="y",labelsize=9)
+        ax.grid(axis="y",alpha=.15)
+        ax.set_axisbelow(True)
+        if i%5==0:
+            ax.set_ylabel("Cumulative OriH validation rate (%)",
+                          fontsize=11,labelpad=8)
+    handles,legend_labels=axes.flat[0].get_legend_handles_labels()
+    fig.suptitle("Cumulative OriH validation: longest gene-free interval per species",
+                 fontsize=15,y=.985)
+    fig.legend(handles,legend_labels,ncol=2,loc="upper center",
+               bbox_to_anchor=(.5,.952),frameon=False,fontsize=10)
+    fig.subplots_adjust(left=.06,right=.99,bottom=.10,top=.88,
+                        wspace=.18,hspace=.47)
+    for ext in ("png","pdf"):
+        fig.savefig(out/("longest_gap_OriH_cumulative_by_length."+ext),
+                    dpi=220)
+    plt.close(fig)
     # Species-level threshold sensitivity: one longest candidate per species,
     # denominators require an available OriH prediction.
     curves=[]
@@ -117,6 +167,6 @@ def main():
         ax.grid(alpha=.15)
     fig.suptitle("OriH validation rate when retaining longer gene-free candidates")
     save(fig,out,"minimum_length_OriH_rate")
-    print("Saved three figures (PNG and PDF) and TSV summaries to",out)
+    print("Saved four figures (PNG and PDF) and TSV summaries to",out)
 
 if __name__=="__main__":main()
