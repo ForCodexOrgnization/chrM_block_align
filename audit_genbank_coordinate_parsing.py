@@ -131,8 +131,8 @@ def main():
                 rows.append(data)
                 per_gene.append((entry["canonical"],span,alt))
             tr_parts=[]
-            for f in tr.get(key,[]):
-                tr_parts.extend(spans(f.start+1,f.end,L))
+            for first,last in tr.get(key,[]):
+                tr_parts.extend(spans(first,last,L))
             for mode in modes:
                 canon=(mode=="no_human_homologous_genes")
                 gb_original=[p for is_c,part,alt in per_gene if not canon or is_c for p in part]
