@@ -167,8 +167,7 @@ def main():
             L=len(seq)
             path=gff_map.get(key)
             if not path or not Path(path).is_file():
-                main_rows.append(dict(rank=rank,species=species,mode="unavailable",
-                    genome_bp=L,gff_path=path or "",reason="gff_missing"))
+                print(f"[SKIP missing GFF] {rank} {species}: {path}",flush=True)
                 continue
             if (key,L) not in cache:
                 cache[key,L]=annotated_features(path,L)
@@ -198,7 +197,7 @@ def main():
                 main_rows.append(dict(rank=rank,species=species,mode=mode,genome_bp=L,
                     gff_path=path,n_oriH_gff_features=len(raw_oh),
                     all_OriH_GFF_coordinates_valid=int(valid_gff),
-                    n_OriH_features_parsed=len(oh),
+                    n_OriH_coordinate_pieces_parsed=len(oh),
                     OriH_fraction_genome=round(stats["OriH_union_bp"]/L,6),
                     **stats))
                 oh_union=union(oh)
