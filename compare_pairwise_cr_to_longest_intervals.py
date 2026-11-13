@@ -87,11 +87,43 @@ def in_gap(pos, start, end, length):
         pos >= start or pos <= end
     )
 
-def rotate(seq, match_pos):
-    if not 1 <= match_pos <= len(seq):
-        raise ValueError("Match_Position is not 1-based and in sequence")
-    k = match_pos - 1
+def rotate(seq, offset):
+    """0-based left rotation."""
+    k = offset % len(seq)
     return seq[k:] + seq[:k]
+
+
+def infer_rotation_offset(original, aligned_ungapped):
+    """Find a verified 0-based offset; never accept merely similar sequences.
+
+    A repeated circular genome may have multiple equivalent rotations. Those
+    cases are explicitly excluded instead of guessing an arbitrary coordinate
+    mapping.
+    """
+    if len(original) != len(aligned_ungapped):
+        return None, "different_sequence_length"
+    doubled = original + original
+    first = doubled.find(aligned_ungapped)
+    if first < 0 or first >= len(original):
+        return None, "sequence_not_circular_rotation"
+    second = doubled.find(aligned_ungapped, first + 1)
+    if 0 <= second < len(original):
+        return None, "ambiguous_multiple_exact_rotations"
+    return first, "unique_exact_circular_rotation"
+
+
+def inferred_convention(match, offset, length):
+    if match is None:
+        return "missing_Match_Position"
+    if not 0 <= match <= length:
+        return "invalid_Match_Position"
+    if match == 0 and offset == 0:
+        return "zero_sentinel_for_no_rotation"
+    if match >= 1 and offset == match - 1:
+        return "matches_1based_start"
+    if offset == match % length:
+        return "matches_0based_offset"
+    return "different_from_reported_Match_Position"
 
 def read_rotindex(path):
     data = {}
@@ -232,6 +264,11 @@ def main():
     for index, (identity, original) in enumerate(seqs.items(), 1):
         key, digest = identity
         row = dict(species_key=key, sequence_sha256=digest, pairing_status="",
+                   inferred_rotation_offset_0based="",
+                   inferred_rotation_start_1based="",
+                   reported_Match_Position=rot.get(key, {}).get("match", ""),
+                   rotation_convention="",
+                   species_ungapped_length="",
                    n_human_CR_mapped_bp=0, n_human_CR_total_bp=CR_LENGTH,
                    mapped_CR_fraction=0.0,
                    n_unique_mapped_species_bp=0, n_mapped_runs=0,
@@ -244,19 +281,28 @@ def main():
             row["pairing_status"] = "missing_rotindex"
         elif ri["length"] != len(original):
             row["pairing_status"] = "rotindex_length_mismatch"
-        elif ri["match"] is None or not 1 <= ri["match"] <= len(original):
-            row["pairing_status"] = "invalid_1based_match_position"
         else:
             try:
                 h_aln, s_aln, label = read_pairwise(file)
                 h_ungapped = h_aln.replace("-", "")
                 s_ungapped = s_aln.replace("-", "")
+                row["species_ungapped_length"] = len(s_ungapped)
                 if h_ungapped != ref:
                     raise ValueError("human_ungapped_not_exact_reference")
-                if s_ungapped != rotate(original, ri["match"]):
-                    raise ValueError("species_ungapped_not_exact_rotation")
+                offset, offset_status = infer_rotation_offset(original, s_ungapped)
+                if offset is None:
+                    raise ValueError(offset_status)
+                convention = inferred_convention(ri["match"], offset, len(original))
+                row.update(
+                    inferred_rotation_offset_0based=offset,
+                    inferred_rotation_start_1based=offset + 1,
+                    rotation_convention=convention)
+                # When the pairwise species FASTA exactly matches a UNIQUE
+                # circular rotation, its observed origin is authoritative.
+                # We still flag conflicts with the TSV; never silently
+                # reinterpret an unmatched or reverse-complemented sequence.
                 bases, n_h_cr, h_total, s_total = mapped_human_cr(
-                    h_aln, s_aln, ri["match"], len(original))
+                    h_aln, s_aln, offset + 1, len(original))
                 if h_total != HUMAN_LENGTH or s_total != len(original):
                     raise ValueError("unexpected_ungapped_lengths")
                 if n_h_cr != CR_LENGTH:
@@ -276,6 +322,11 @@ def main():
     print("Pairwise validation statuses:", flush=True)
     for status, count in collections.Counter(
             row["pairing_status"] for row in mapped.values()).most_common():
+        print(f"  {status}: {count}", flush=True)
+    print("Rotation conventions among exactly validated pairwise sequences:", flush=True)
+    for status, count in collections.Counter(
+            row["rotation_convention"] for row in mapped.values()
+            if row["pairing_status"] == "validated").most_common():
         print(f"  {status}: {count}", flush=True)
 
     per_species = []
@@ -401,6 +452,10 @@ def main():
               by_status, ["rank", "support_class", "n_species"])
     qc = [dict(species_key=identity[0], sequence_sha256=identity[1],
                pairwise_status=v["pairing_status"],
+               rotation_convention=v["rotation_convention"],
+               inferred_rotation_offset_0based=v["inferred_rotation_offset_0based"],
+               inferred_rotation_start_1based=v["inferred_rotation_start_1based"],
+               species_ungapped_length=v["species_ungapped_length"],
                pairwise_file=str(pairwise.get(identity[0],"")),
                rotindex_Match_Position=rot.get(identity[0], {}).get("match",""),
                rotindex_Sequence_Length=rot.get(identity[0], {}).get("length",""),
