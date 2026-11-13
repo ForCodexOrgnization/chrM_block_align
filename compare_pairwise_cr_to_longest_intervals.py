@@ -27,6 +27,7 @@ Output for every rank:
 import argparse
 import collections
 import csv
+import hashlib
 import re
 from pathlib import Path
 
@@ -198,29 +199,36 @@ def main():
         raise ValueError(f"No .faa alignments in {a.pairwise_dir}")
 
     rank_species = collections.defaultdict(list)
+    # Species names are not unique sequence identifiers across rank FASTAs.
+    # E.g. "Acropora" occurs with different mtDNA sequences. Only reuse a
+    # mapping when both the normalized label and the exact sequence match.
     seqs = {}
     lengths = {}
     seen_by_rank = collections.defaultdict(set)
+    name_to_versions = collections.defaultdict(set)
     for rank in a.ranks:
         path = Path(a.unrot_fasta_dir) / f"{rank}_chrm.faa"
         for name, seq in fasta(path):
             key = norm(name)
             if key == "homosapiens":
                 continue
-            if key in seqs and seqs[key] != seq:
-                raise ValueError(f"Different unrotated sequences across ranks: {name}")
             if key in seen_by_rank[rank]:
                 raise ValueError(f"Duplicate rank species: {rank}/{name}")
             seen_by_rank[rank].add(key)
-            seqs[key] = seq
-            lengths[key] = len(seq)
-            rank_species[rank].append((key, name, len(seq)))
-    print("Unique species:", len(seqs), "pairwise FAA files:", len(pairwise),
-          flush=True)
+            digest = hashlib.sha256(seq.encode("ascii")).hexdigest()
+            identity = (key, digest)
+            seqs[identity] = seq
+            lengths[identity] = len(seq)
+            name_to_versions[key].add(digest)
+            rank_species[rank].append((identity, name, len(seq)))
+    print("Unique name+sequence combinations:", len(seqs),
+          "ambiguous names:", sum(len(x) > 1 for x in name_to_versions.values()),
+          "pairwise FAA files:", len(pairwise), flush=True)
 
     mapped = {}
-    for index, (key, original) in enumerate(seqs.items(), 1):
-        row = dict(species_key=key, pairing_status="",
+    for index, (identity, original) in enumerate(seqs.items(), 1):
+        key, digest = identity
+        row = dict(species_key=key, sequence_sha256=digest, pairing_status="",
                    n_human_CR_mapped_bp=0, n_human_CR_total_bp=CR_LENGTH,
                    mapped_CR_fraction=0.0,
                    n_unique_mapped_species_bp=0, n_mapped_runs=0,
@@ -258,7 +266,7 @@ def main():
                            n_mapped_runs=mapped_runs(bases, len(original)))
             except (ValueError, OSError, IndexError) as e:
                 row["pairing_status"] = f"invalid_alignment:{str(e)}"
-        mapped[key] = row
+        mapped[identity] = row
         if index % 2000 == 0:
             print("Processed pairwise:", index, "/", len(seqs), flush=True)
 
@@ -267,10 +275,11 @@ def main():
     by_status = []
     for rank in a.ranks:
         rank_rows = []
-        for key, name, length in rank_species[rank]:
+        for identity, name, length in rank_species[rank]:
+            key, digest = identity
             g = longest.get((rank, key))
-            m = mapped[key]
-            result = dict(rank=rank, species=name,
+            m = mapped[identity]
+            result = dict(rank=rank, species=name, sequence_sha256=digest,
                           genome_bp=length,
                           pairwise_status=m["pairing_status"],
                           n_human_CR_mapped_bp=m["n_human_CR_mapped_bp"],
@@ -358,7 +367,7 @@ def main():
               flush=True)
 
     species_fields = [
-        "rank", "species", "genome_bp", "pairwise_status",
+        "rank", "species", "sequence_sha256", "genome_bp", "pairwise_status",
         "n_human_CR_mapped_bp", "human_CR_bp", "CR_mapping_fraction",
         "n_mapped_CR_runs", "mapped_CR_usable", "candidate_defined",
         "longest_gap_bp", "gap_start_1based", "gap_end_1based", "OriH_status",
@@ -370,15 +379,16 @@ def main():
               per_rank, list(per_rank[0]))
     write_tsv(out/"all_ranks_support_categories.tsv",
               by_status, ["rank", "support_class", "n_species"])
-    qc = [dict(species_key=k, pairwise_status=v["pairing_status"],
-               pairwise_file=str(pairwise.get(k,"")),
-               rotindex_Match_Position=rot.get(k, {}).get("match",""),
-               rotindex_Sequence_Length=rot.get(k, {}).get("length",""),
-               unrot_genome_length=lengths[k],
+    qc = [dict(species_key=identity[0], sequence_sha256=identity[1],
+               pairwise_status=v["pairing_status"],
+               pairwise_file=str(pairwise.get(identity[0],"")),
+               rotindex_Match_Position=rot.get(identity[0], {}).get("match",""),
+               rotindex_Sequence_Length=rot.get(identity[0], {}).get("length",""),
+               unrot_genome_length=lengths[identity],
                n_human_CR_mapped_bp=v["n_human_CR_mapped_bp"],
                mapped_CR_fraction=v["mapped_CR_fraction"],
                n_mapped_runs=v["n_mapped_runs"])
-          for k,v in mapped.items()]
+          for identity,v in mapped.items()]
     write_tsv(out/"pairwise_mapping_QC.tsv", qc, list(qc[0]))
     print("Wrote results to", out.resolve(), flush=True)
     print("Caution: full-length exact-match QC is conservative; review failures in"
