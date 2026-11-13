@@ -200,6 +200,7 @@ def main():
     rank_species = collections.defaultdict(list)
     seqs = {}
     lengths = {}
+    seen_by_rank = collections.defaultdict(set)
     for rank in a.ranks:
         path = Path(a.unrot_fasta_dir) / f"{rank}_chrm.faa"
         for name, seq in fasta(path):
@@ -208,8 +209,9 @@ def main():
                 continue
             if key in seqs and seqs[key] != seq:
                 raise ValueError(f"Different unrotated sequences across ranks: {name}")
-            if key in [k for k, _, _ in rank_species[rank]]:
+            if key in seen_by_rank[rank]:
                 raise ValueError(f"Duplicate rank species: {rank}/{name}")
+            seen_by_rank[rank].add(key)
             seqs[key] = seq
             lengths[key] = len(seq)
             rank_species[rank].append((key, name, len(seq)))
