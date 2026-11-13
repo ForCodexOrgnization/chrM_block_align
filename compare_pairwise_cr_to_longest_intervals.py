@@ -204,7 +204,7 @@ def main():
     # mapping when both the normalized label and the exact sequence match.
     seqs = {}
     lengths = {}
-    seen_by_rank = collections.defaultdict(set)
+    rank_name_counts = collections.Counter()
     name_to_versions = collections.defaultdict(set)
     for rank in a.ranks:
         path = Path(a.unrot_fasta_dir) / f"{rank}_chrm.faa"
@@ -212,15 +212,16 @@ def main():
             key = norm(name)
             if key == "homosapiens":
                 continue
-            if key in seen_by_rank[rank]:
-                raise ValueError(f"Duplicate rank species: {rank}/{name}")
-            seen_by_rank[rank].add(key)
+            rank_name_counts[(rank, key)] += 1
             digest = hashlib.sha256(seq.encode("ascii")).hexdigest()
             identity = (key, digest)
             seqs[identity] = seq
             lengths[identity] = len(seq)
             name_to_versions[key].add(digest)
             rank_species[rank].append((identity, name, len(seq)))
+    ambiguous_rank_names = {x for x, count in rank_name_counts.items()
+                            if count > 1}
+    print("Duplicate rank/name groups:", len(ambiguous_rank_names), flush=True)
     print("Unique name+sequence combinations:", len(seqs),
           "ambiguous names:", sum(len(x) > 1 for x in name_to_versions.values()),
           "pairwise FAA files:", len(pairwise), flush=True)
@@ -277,9 +278,16 @@ def main():
         rank_rows = []
         for identity, name, length in rank_species[rank]:
             key, digest = identity
-            g = longest.get((rank, key))
+            # The longest-gap and rotation files use species name as key.
+            # With duplicated names in a rank there is no defensible way to
+            # choose which gene-free interval belongs to which FASTA record.
+            # Keep both records visible, but exclude from overlap comparison.
+            ambiguous = (rank, key) in ambiguous_rank_names
+            g = None if ambiguous else longest.get((rank, key))
             m = mapped[identity]
             result = dict(rank=rank, species=name, sequence_sha256=digest,
+                          n_same_name_in_rank=rank_name_counts[(rank, key)],
+                          name_ambiguous_within_rank=int(ambiguous),
                           genome_bp=length,
                           pairwise_status=m["pairing_status"],
                           n_human_CR_mapped_bp=m["n_human_CR_mapped_bp"],
@@ -293,7 +301,10 @@ def main():
                           CR_overlap_bp="", CR_overlap_any="",
                           mapped_CR_coverage_by_gap="",
                           longest_gap_fraction_covered_by_CR="",
-                          support_class="unavailable")
+                          support_class=("ambiguous_species_name"
+                                         if ambiguous else "unavailable"))
+            if ambiguous:
+                result["pairwise_status"] = "ambiguous_species_name_within_rank"
             if g is not None:
                 defined = num(g.get("candidate_defined")) == 1
                 result.update(candidate_defined=int(defined),
@@ -350,6 +361,7 @@ def main():
             n_pairwise_validated=count(lambda x: x["pairwise_status"] == "validated"),
             n_mapped_CR_usable=len(valid),
             n_longest_interval=count(lambda x: x["candidate_defined"] == 1),
+            n_ambiguous_name_records=count(lambda x: x["name_ambiguous_within_rank"] == 1),
             n_longest_with_CR_overlap=count(lambda x: x["mapped_CR_usable"] and x["CR_overlap_any"] == 1),
             n_longest_with_CR_full_mapped_containment=count(
                 lambda x: x["mapped_CR_usable"] and x["mapped_CR_coverage_by_gap"] == 1),
@@ -367,7 +379,8 @@ def main():
               flush=True)
 
     species_fields = [
-        "rank", "species", "sequence_sha256", "genome_bp", "pairwise_status",
+        "rank", "species", "sequence_sha256", "n_same_name_in_rank",
+        "name_ambiguous_within_rank", "genome_bp", "pairwise_status",
         "n_human_CR_mapped_bp", "human_CR_bp", "CR_mapping_fraction",
         "n_mapped_CR_runs", "mapped_CR_usable", "candidate_defined",
         "longest_gap_bp", "gap_start_1based", "gap_end_1based", "OriH_status",
@@ -390,6 +403,13 @@ def main():
                n_mapped_runs=v["n_mapped_runs"])
           for identity,v in mapped.items()]
     write_tsv(out/"pairwise_mapping_QC.tsv", qc, list(qc[0]))
+    duplicates = [dict(rank=rank, normalized_species_name=key,
+                       n_fasta_records=count,
+                       resolution="excluded_from_overlap_until_unique_sequence_identifiers")
+                  for (rank, key), count in sorted(rank_name_counts.items())
+                  if count > 1]
+    write_tsv(out/"duplicate_rank_species_names.tsv", duplicates,
+              ["rank", "normalized_species_name", "n_fasta_records", "resolution"])
     print("Wrote results to", out.resolve(), flush=True)
     print("Caution: full-length exact-match QC is conservative; review failures in"
           " pairwise_mapping_QC.tsv. A valid human CR mapping does not itself"
