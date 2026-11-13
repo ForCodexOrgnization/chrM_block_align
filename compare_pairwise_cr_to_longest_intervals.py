@@ -79,7 +79,14 @@ def original_pos(rotated_pos, match_position, length):
     return ((rotated_pos + match_position - 2) % length) + 1
 
 def in_gap(pos, start, end, length):
-    """Gap stored as 1-based inclusive [start, end], allowed to wrap."""
+    """Check 1-based circular gap, including the legacy end=0 sentinel.
+
+    analyze_longest_all_gene_desert.py outputs gap_end_1based as
+    candidate[1] % L. When candidate[1] is L or 2*L it emits 0,
+    which means base L (NOT an empty or invalid gap).
+    """
+    if end == 0:
+        end = length
     if not (1 <= pos <= length and 1 <= start <= length and
             1 <= end <= length):
         return False
@@ -334,6 +341,7 @@ def main():
     by_status = []
     for rank in a.ranks:
         rank_rows = []
+        n_endzero = 0
         for identity, name, length in rank_species[rank]:
             key, digest = identity
             # The longest-gap and rotation files use species name as key.
@@ -386,6 +394,8 @@ def main():
                 start = num(g.get("gap_start_1based"))
                 end = num(g.get("gap_end_1based"))
                 if start is not None and end is not None:
+                    if end == 0:
+                        n_endzero += 1
                     bases = m["mapped_bases"]
                     n_hit = sum(in_gap(pos, start, end, length) for pos in bases)
                     result.update(
@@ -434,7 +444,7 @@ def main():
             by_status.append(dict(rank=rank, support_class=status, n_species=group))
         print(rank, len(rank_rows), "mapped usable:", len(valid),
               "CR overlaps:", per_rank[-1]["n_longest_with_CR_overlap"],
-              flush=True)
+              "legacy gap_end=0 checked:", n_endzero, flush=True)
 
     species_fields = [
         "rank", "species", "sequence_sha256", "n_same_name_in_rank",
