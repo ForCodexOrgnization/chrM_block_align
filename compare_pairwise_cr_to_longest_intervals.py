@@ -50,7 +50,9 @@ def fasta(path):
             if line.startswith(">"):
                 if name is not None:
                     yield name, "".join(seq).upper()
-                name, seq = line[1:].split()[0], []
+                # Preserve the complete FASTA identifier: truncating at whitespace
+                # collapses binomials (e.g. Acropora millepora -> Acropora).
+                name, seq = line[1:].strip(), []
             elif line:
                 seq.append(line)
     if name is not None:
@@ -270,6 +272,11 @@ def main():
         mapped[identity] = row
         if index % 2000 == 0:
             print("Processed pairwise:", index, "/", len(seqs), flush=True)
+
+    print("Pairwise validation statuses:", flush=True)
+    for status, count in collections.Counter(
+            row["pairing_status"] for row in mapped.values()).most_common():
+        print(f"  {status}: {count}", flush=True)
 
     per_species = []
     per_rank = []
