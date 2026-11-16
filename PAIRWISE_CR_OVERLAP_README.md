@@ -11,8 +11,12 @@ gene-free interval, all in unrotated mitochondrial coordinates:
    in each full-length pairwise alignment. The species base in each such
    column is mapped to the original circular genome after identifying a
    unique exact rotation of the ungapped aligned species sequence. Species
-   insertions in human-gap columns are not counted. An overlap requires >=1
-   mapped species base within the longest interval. This is **not evidence
+   insertions aligned to gaps in human **within the human CR** are
+   **included** in the expanded mapped CR, including at the circular
+   human 16569/1 junction. Insertion columns after human position 576
+   or 16023 (the CR boundaries) are excluded. Species '-' deletion
+   columns do not represent genomic bases. An overlap requires >=1
+   expanded mapped CR base within the longest interval. This is **not evidence
    of homology by itself** for distant taxa. The overlap fraction
    `mapped_CR_coverage_by_gap` is the fraction of mapped species CR
    nucleotides within the longest interval (not the human CR mapping fraction).
@@ -27,7 +31,8 @@ gene-free interval, all in unrotated mitochondrial coordinates:
    `analyze_longest_all_gene_desert.py`; child OH-b exons and OriL
    do not contribute. All OriH feature bases are unioned, respecting
    circular wrap, and intersected directly with the individual mapped
-   CR species positions. This comparison does **not** require an
+   CR species positions, including species bases in human-gap columns
+   inside the CR. This comparison does **not** require an
    existing longest gene-free interval. `CR_OriH_overlap_bp` and
    `CR_OriH_overlap_any` report exact base-pair intersection and a
    1/0 flag. Unavailable means missing OriH annotation, invalid CR
@@ -79,9 +84,22 @@ unrotated genome coordinates for both methods.
 Missing OriH annotations, a missing longest interval or an invalid
 pairwise CR mapping make the corresponding metric **unavailable**, not 0.
 The CR assessment still includes valid mappings covering <50% of the human
-CR, flagged in `CR_mapping_group`. Because the pairwise CR is a sparse
-set of aligned bases (insertions and gaps are excluded), 100% exact-base
-containment is stricter than interval-based containment.
+CR, flagged in `CR_mapping_group`. The expanded CR includes all species
+bases in the human CR alignment columns, including insertions in human-gap
+columns, but species deletions contribute no bases. Exact-base 100%
+containment is still potentially stricter than continuous interval
+containment when the mapping is fragmented or ambiguous.
+
+**Mapping update:** The main `CR_OriH_overlap_*` and
+`CR_OriH_coverage_fraction` columns, as well as longest-versus-CR
+comparisons, now use the **insertion-inclusive** CR. For a direct comparison
+with the old result, the species output also includes
+`n_CR_species_insertions_bp`, `n_CR_expanded_species_bp`,
+`CR_OriH_anchor_only_overlap_bp`,
+`CR_OriH_anchor_only_coverage_fraction`,
+`CR_OriH_anchor_only_ge80`, and `CR_OriH_anchor_only_full`.
+The old `n_human_CR_mapped_bp` and `CR_mapping_fraction` remain
+anchor-only QC metrics with a denominator of 1,122 human CR positions.
 
 **New species-level fields:**
 `OriH_total_unique_bp`,
