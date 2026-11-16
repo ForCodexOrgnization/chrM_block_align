@@ -60,6 +60,47 @@ but the overlap is unavailable, not a negative result.
 An interval with `gap_end_1based=0` ends at the last genome base; the
 comparison handles this legacy circular sentinel.
 
+## OriH containment sensitivity analysis (new)
+
+For **both** longest interval and pairwise-mapped CR, quantify:
+
+`OriH coverage = (number of distinct OriH bases in candidate) /
+(number of distinct annotated OriH bases)`.
+
+The OriH denominator is the union of all parent OriH GFF features (not
+the sum of features that may overlap). Positions use the same original
+unrotated genome coordinates for both methods.
+
+- `any`: intersection >=1 OriH nucleotide.
+- `ge80`: at least 80% of OriH nucleotides covered, evaluated with
+  exact integer arithmetic (no rounding-based boundary errors).
+- `full`: all OriH nucleotides covered (100% exact-base containment).
+
+Missing OriH annotations, a missing longest interval or an invalid
+pairwise CR mapping make the corresponding metric **unavailable**, not 0.
+The CR assessment still includes valid mappings covering <50% of the human
+CR, flagged in `CR_mapping_group`. Because the pairwise CR is a sparse
+set of aligned bases (insertions and gaps are excluded), 100% exact-base
+containment is stricter than interval-based containment.
+
+**New species-level fields:**
+`OriH_total_unique_bp`,
+`Longest_OriH_overlap_bp_exact`,
+`Longest_OriH_coverage_fraction`,
+`Longest_OriH_any_exact`, `Longest_OriH_ge80`,
+`Longest_OriH_full`,
+`CR_OriH_coverage_fraction`,
+`CR_OriH_any_exact`, `CR_OriH_ge80`, `CR_OriH_full`.
+The prior `CR_OriH_fraction_of_mapped_CR` remains a different metric:
+fraction of mapped CR bases overlapping OriH.
+
+**New threshold strategy output:**
+`all_ranks_OriH_coverage_threshold_strategies.tsv` has three rows per
+rank (`any`, `ge80`, `full`), comparing longest-first and CR-first
+counts, the common selected union, overlap of both methods, only one
+method, and neither. The older `all_ranks_OriH_guided_fallback_strategies.tsv`
+continues to report the historical >=1 bp definition for compatibility.
+
 ## Outputs
 
 All files are produced in
@@ -80,6 +121,8 @@ All files are produced in
 - `all_ranks_CR_OriH_joint_by_coverage.tsv`: joint CR/OriH outcomes
   stratified by mapping coverage, including unavailable values.
 - `all_ranks_support_categories.tsv`: joint categories with all species.
+- `all_ranks_OriH_coverage_threshold_strategies.tsv`: sensitivity analysis
+  at any, >=80%, and 100% OriH coverage for both priority orders.
 - `all_ranks_OriH_guided_fallback_strategies.tsv`: per-rank first-class,
   fallback, total selection and overlap counts for both priority orders.
 - `pairwise_mapping_QC.tsv`: rotation validation details and counts.
