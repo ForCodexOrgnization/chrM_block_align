@@ -309,6 +309,72 @@ def orih_guided_strategy(longest_hit, direct_cr_hit):
     }
 
 
+def orih_coverage_flags(overlap_bp, orih_bp):
+    """Returns any, >=80%, and 100% containment using exact base counts.
+
+    An unavailable annotation is not equivalent to a negative result.
+    Integer arithmetic avoids rounding changes at the 80% boundary.
+    """
+    if overlap_bp == "" or orih_bp == "" or orih_bp <= 0:
+        return dict(any="", ge80="", full="", fraction="")
+    if not 0 <= overlap_bp <= orih_bp:
+        raise ValueError("OriH overlap cannot exceed OriH length")
+    return dict(any=int(overlap_bp > 0),
+                ge80=int(overlap_bp * 5 >= orih_bp * 4),
+                full=int(overlap_bp == orih_bp),
+                fraction=round(overlap_bp / orih_bp, 6))
+
+
+def longest_orih_coverage(g, length, ori_positions):
+    """Overlap count using the same union of OriH bases as the CR method."""
+    if not g or num(g.get("candidate_defined")) != 1 or not ori_positions:
+        return ""
+    start, end = num(g.get("gap_start_1based")), num(g.get("gap_end_1based"))
+    if (start is None or end is None or not 1 <= start <= length or
+            not 0 <= end <= length):
+        return ""
+    return sum(in_gap(p, start, end, length) for p in ori_positions)
+
+
+def priority_for_threshold(long_metrics, cr_metrics, criterion):
+    return orih_guided_strategy(long_metrics[criterion], cr_metrics[criterion])
+
+
+def strategy_summary(rows, criterion):
+    """Mutually exclusive first/fallback groups for one OriH criterion."""
+    decisions = [
+        priority_for_threshold(
+            dict(any=r["Longest_OriH_any_exact"],
+                 ge80=r["Longest_OriH_ge80"],
+                 full=r["Longest_OriH_full"]),
+            dict(any=r["CR_OriH_any_exact"],
+                 ge80=r["CR_OriH_ge80"],
+                 full=r["CR_OriH_full"]),
+            criterion)
+        for r in rows]
+    long_primary = sum(d["longest_first"] == "longest_interval" for d in decisions)
+    cr_fallback = sum(d["longest_first"] == "pairwise_CR" for d in decisions)
+    cr_primary = sum(d["CR_first"] == "pairwise_CR" for d in decisions)
+    long_fallback = sum(d["CR_first"] == "longest_interval" for d in decisions)
+    selected = sum(d["selected"] for d in decisions)
+    both = sum(d["both"] for d in decisions)
+    assert long_primary + cr_fallback == cr_primary + long_fallback == selected
+    return dict(
+        criterion=criterion, n_total_species=len(rows),
+        n_longest_evaluable=sum(r["Longest_OriH_any_exact"] != "" for r in rows),
+        n_CR_evaluable=sum(r["CR_OriH_any_exact"] != "" for r in rows),
+        longest_first_primary=long_primary,
+        longest_first_CR_fallback=cr_fallback,
+        longest_first_total=selected,
+        CR_first_primary=cr_primary,
+        CR_first_longest_fallback=long_fallback,
+        CR_first_total=selected,
+        both_methods=both,
+        longest_only=long_fallback,
+        CR_only=cr_fallback,
+        neither_selected=len(rows)-selected)
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--pairwise-dir",
@@ -498,7 +564,20 @@ def main():
                 direct_bp = len(m["mapped_bases"] & ori_positions)
                 direct_hit = int(direct_bp > 0)
                 direct_fraction = round(direct_bp / len(m["mapped_bases"]), 6)
+            # Exact OriH-union denominator for both candidate methods.
+            # A longer interval can cover inserted bases unaligned to human;
+            # CR coverage counts ONLY explicitly mapped species nucleotides.
+            orih_bp = (len(ori_positions) if ori_direct_status == "predicted"
+                       else "")
+            longest_orih_bp = (longest_orih_coverage(g, length, ori_positions)
+                              if ori_direct_status == "predicted" else "")
+            longest_metrics = orih_coverage_flags(longest_orih_bp, orih_bp)
+            cr_metrics = orih_coverage_flags(direct_bp, orih_bp)
             priority = orih_guided_strategy(ori_hit, direct_hit)
+            priority_ge80 = priority_for_threshold(
+                longest_metrics, cr_metrics, "ge80")
+            priority_full = priority_for_threshold(
+                longest_metrics, cr_metrics, "full")
             result = dict(
                 rank=rank, species=name, sequence_sha256=digest,
                 n_same_name_in_rank=rank_name_counts[(rank, key)],
@@ -525,10 +604,28 @@ def main():
                 OriH_overlap_label=overlap_label(ori_hit),
                 OriH_GFF_direct_status=ori_direct_status,
                 OriH_direct_n_features=ori_features,
+                OriH_total_unique_bp=orih_bp,
+                Longest_OriH_overlap_bp_exact=longest_orih_bp,
+                Longest_OriH_coverage_fraction=longest_metrics["fraction"],
+                Longest_OriH_any_exact=longest_metrics["any"],
+                Longest_OriH_ge80=longest_metrics["ge80"],
+                Longest_OriH_full=longest_metrics["full"],
                 CR_OriH_overlap_bp=direct_bp,
                 CR_OriH_overlap_any=direct_hit,
                 CR_OriH_overlap_label=overlap_label(direct_hit),
                 CR_OriH_fraction_of_mapped_CR=direct_fraction,
+                CR_OriH_coverage_fraction=cr_metrics["fraction"],
+                CR_OriH_any_exact=cr_metrics["any"],
+                CR_OriH_ge80=cr_metrics["ge80"],
+                CR_OriH_full=cr_metrics["full"],
+                longest_first_source_ge80=priority_ge80["longest_first"],
+                CR_first_source_ge80=priority_ge80["CR_first"],
+                OriH_guided_selected_ge80=priority_ge80["selected"],
+                OriH_guided_both_ge80=priority_ge80["both"],
+                longest_first_source_full=priority_full["longest_first"],
+                CR_first_source_full=priority_full["CR_first"],
+                OriH_guided_selected_full=priority_full["selected"],
+                OriH_guided_both_full=priority_full["both"],
                 longest_first_source=priority["longest_first"],
                 CR_first_source=priority["CR_first"],
                 OriH_guided_selected=priority["selected"],
@@ -686,8 +783,17 @@ def main():
         "OriH_status", "OriH_present", "OriH_overlap_bp",
         "OriH_overlaps_longest", "OriH_overlap_label",
         "OriH_GFF_direct_status", "OriH_direct_n_features",
+        "OriH_total_unique_bp",
+        "Longest_OriH_overlap_bp_exact", "Longest_OriH_coverage_fraction",
+        "Longest_OriH_any_exact", "Longest_OriH_ge80", "Longest_OriH_full",
         "CR_OriH_overlap_bp", "CR_OriH_overlap_any", "CR_OriH_overlap_label",
         "CR_OriH_fraction_of_mapped_CR",
+        "CR_OriH_coverage_fraction", "CR_OriH_any_exact",
+        "CR_OriH_ge80", "CR_OriH_full",
+        "longest_first_source_ge80", "CR_first_source_ge80",
+        "OriH_guided_selected_ge80", "OriH_guided_both_ge80",
+        "longest_first_source_full", "CR_first_source_full",
+        "OriH_guided_selected_full", "OriH_guided_both_full",
         "longest_first_source", "CR_first_source",
         "OriH_guided_selected", "OriH_guided_both",
         "CR_OriH_joint_support", "support_class"]
@@ -727,6 +833,19 @@ def main():
             neither_selected=len(rows)-selected))
     write_tsv(out/"all_ranks_OriH_guided_fallback_strategies.tsv",
               strategies, list(strategies[0]))
+    threshold_summaries = []
+    for rank in a.ranks:
+        rows = [r for r in per_species if r["rank"] == rank]
+        for criterion in ("any", "ge80", "full"):
+            summary = strategy_summary(rows, criterion)
+            summary["rank"] = rank
+            threshold_summaries.append(summary)
+        print(rank, "OriH criterion counts:",
+              [(s["criterion"], s["longest_first_total"], s["both_methods"])
+               for s in threshold_summaries[-3:]], flush=True)
+    write_tsv(out/"all_ranks_OriH_coverage_threshold_strategies.tsv",
+              threshold_summaries, ["rank"] + [
+                  k for k in threshold_summaries[0] if k != "rank"])
     qc = [dict(species_key=identity[0], sequence_sha256=identity[1],
                pairwise_status=v["pairing_status"],
                rotation_convention=v["rotation_convention"],
