@@ -5,7 +5,8 @@ import tempfile
 from pathlib import Path
 from compare_pairwise_cr_to_longest_intervals import (
     in_gap, original_pos, cr_mapping_group, overlap_label, ori_group,
-    ori_overlap_value, read_orih_positions, orih_guided_strategy
+    ori_overlap_value, read_orih_positions, orih_guided_strategy,
+    orih_coverage_flags, longest_orih_coverage, strategy_summary
 )
 
 class TestCircularIntervals(unittest.TestCase):
@@ -104,6 +105,56 @@ class TestDirectCRvsOriH(unittest.TestCase):
         self.assertEqual(orih_guided_strategy(0, "")["selected"], 0)
         self.assertEqual(orih_guided_strategy(0, "")["CR_first"], "none")
 
+
+
+class TestOriHCoverageThresholds(unittest.TestCase):
+    def test_exact_thresholds(self):
+        self.assertEqual(orih_coverage_flags(1, 100)["any"], 1)
+        self.assertEqual(orih_coverage_flags(79, 100)["ge80"], 0)
+        self.assertEqual(orih_coverage_flags(80, 100)["ge80"], 1)
+        self.assertEqual(orih_coverage_flags(80, 100)["full"], 0)
+        self.assertEqual(orih_coverage_flags(100, 100)["full"], 1)
+        self.assertEqual(orih_coverage_flags(0, 100)["any"], 0)
+
+    def test_missing_and_zero_oriH_unavailable(self):
+        for x, n in (("", 20), (0, ""), (0, 0)):
+            flags = orih_coverage_flags(x, n)
+            self.assertEqual(flags["any"], "")
+            self.assertEqual(flags["ge80"], "")
+            self.assertEqual(flags["full"], "")
+
+    def test_circular_longest_interval(self):
+        # An interval running 91..100 contains both OriH pieces 95..100 and 1..5
+        ori = set(range(95, 101)) | set(range(1, 6))
+        g = dict(candidate_defined="1", gap_start_1based="91",
+                 gap_end_1based="5")
+        self.assertEqual(longest_orih_coverage(g, 100, ori), 11)
+        g["gap_start_1based"] = "97"
+        self.assertEqual(longest_orih_coverage(g, 100, ori), 9)
+        g["gap_end_1based"] = "0"
+        self.assertEqual(longest_orih_coverage(g, 100, ori), 4)
+
+    def test_threshold_fallback_and_both(self):
+        def row(l, c):
+            return {
+                "Longest_OriH_any_exact": int(l > 0),
+                "Longest_OriH_ge80": int(l >= 80),
+                "Longest_OriH_full": int(l == 100),
+                "CR_OriH_any_exact": int(c > 0),
+                "CR_OriH_ge80": int(c >= 80),
+                "CR_OriH_full": int(c == 100),
+            }
+        rows = [row(100, 100), row(90, 0), row(0, 80), row(5, 5)]
+        full = strategy_summary(rows, "full")
+        self.assertEqual(full["longest_first_total"], 1)
+        self.assertEqual(full["both_methods"], 1)
+        eighty = strategy_summary(rows, "ge80")
+        self.assertEqual(eighty["longest_first_primary"], 2)
+        self.assertEqual(eighty["longest_first_CR_fallback"], 1)
+        self.assertEqual(eighty["both_methods"], 1)
+        any_result = strategy_summary(rows, "any")
+        self.assertEqual(any_result["longest_first_total"], 4)
+        self.assertEqual(any_result["both_methods"], 2)
 
 if __name__ == "__main__":
     unittest.main()
