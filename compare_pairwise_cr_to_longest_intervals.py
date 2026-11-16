@@ -14,9 +14,13 @@ Coordinates:
 - A pairwise alignment is accepted only when its ungapped sequences exactly
   match the human reference and a unique exact circular rotation of the species FASTA.
 
-Important: We compare mapped species BASES only. Human-gap insertion columns
-are NOT inferred as aligned to the human control region, and the min/max of
-mapped coordinates is NOT used to claim coverage across the circular origin.
+Important: The primary mapped CR includes species bases at columns aligned
+to human CR nucleotides AND species insertions aligned to human '-' columns
+within the human CR, including the circular 16569/1 junction. Species gaps
+are not genomic bases. CR coverage QC remains the fraction of 1,122 human CR
+bases with aligned species nucleotides. Original anchor-only mappings are
+retained for sensitivity checks. Do not infer a contiguous region from min/max
+species coordinates across a circular genome.
 
 Output for every rank:
 - detailed per species TSV
@@ -163,25 +167,50 @@ def read_longest(path):
             data[key] = row
     return data
 
-def mapped_human_cr(human_aln, species_aln, match_position, length):
-    """Map each human control-region base to ORIGINAL species coordinates.
+def gap_column_in_human_cr(hpos):
+    """Assign human '-' columns by the reference interval to their left.
 
-    Returns only species bases aligned to human CR nucleotides. A species
-    insertion aligned to '-' in human is deliberately not included.
+    hpos is the number of non-gap human bases seen BEFORE this column.
+    A gap following human coordinate 576 or 16023 is outside CR.
+    Leading/trailing human gaps belong to the circular 16569/1 CR junction.
     """
+    return (hpos == 0 or 1 <= hpos < CR_END or
+            CR_START <= hpos <= HUMAN_LENGTH)
+
+
+def mapped_human_cr(human_aln, species_aln, match_position, length):
+    """Return expanded CR bases, anchor-only CR bases, and alignment QC.
+
+    Each species base aligned directly to a human CR base is an anchor.
+    Species insertions in human '-' columns INTERNAL to the human CR
+    (including circular 16569/1 junction) are included in the expanded
+    CR. A species '-' column never contributes a genomic base.
+    """
+    if len(human_aln) != len(species_aln):
+        raise ValueError("pairwise alignment columns differ")
     hpos = spos = 0
-    mapped = set()
+    expanded = set()
+    anchors = set()
     h_cr_present = 0
-    for h, s in zip(human_aln, species_aln):
+    for h, sp in zip(human_aln, species_aln):
         if h != "-":
             hpos += 1
-        if s != "-":
+        if sp != "-":
             spos += 1
-        if h != "-" and (hpos <= CR_END or hpos >= CR_START):
+        is_human_cr = (h != "-" and
+                       (hpos <= CR_END or hpos >= CR_START))
+        if is_human_cr:
             h_cr_present += 1
-            if s != "-":
-                mapped.add(original_pos(spos, match_position, length))
-    return mapped, h_cr_present, hpos, spos
+        if sp == "-":
+            continue
+        if is_human_cr:
+            pos = original_pos(spos, match_position, length)
+            anchors.add(pos)
+            expanded.add(pos)
+        elif h == "-" and gap_column_in_human_cr(hpos):
+            expanded.add(original_pos(spos, match_position, length))
+    return expanded, anchors, h_cr_present, hpos, spos
+
 
 def mapped_runs(bases, length):
     """Count separated mapped-base runs on a CIRCULAR genome."""
@@ -454,7 +483,10 @@ def main():
                    n_human_CR_mapped_bp=0, n_human_CR_total_bp=CR_LENGTH,
                    mapped_CR_fraction=0.0,
                    n_unique_mapped_species_bp=0, n_mapped_runs=0,
-                   mapped_bases=None, species_alignment_label="")
+                   mapped_bases=None, anchor_bases=None,
+                   n_CR_species_insertions_bp=0,
+                   n_CR_expanded_species_bp=0,
+                   species_alignment_label="")
         file = pairwise.get(key)
         ri = rot.get(key)
         if file is None:
@@ -483,16 +515,19 @@ def main():
                 # circular rotation, its observed origin is authoritative.
                 # We still flag conflicts with the TSV; never silently
                 # reinterpret an unmatched or reverse-complemented sequence.
-                bases, n_h_cr, h_total, s_total = mapped_human_cr(
+                bases, anchors, n_h_cr, h_total, s_total = mapped_human_cr(
                     h_aln, s_aln, offset + 1, len(original))
                 if h_total != HUMAN_LENGTH or s_total != len(original):
                     raise ValueError("unexpected_ungapped_lengths")
                 if n_h_cr != CR_LENGTH:
                     raise ValueError("human_CR_reference_incomplete")
                 row.update(pairing_status="validated", mapped_bases=bases,
+                           anchor_bases=anchors,
+                           n_CR_species_insertions_bp=len(bases - anchors),
+                           n_CR_expanded_species_bp=len(bases),
                            species_alignment_label=label,
-                           n_human_CR_mapped_bp=len(bases),
-                           mapped_CR_fraction=round(len(bases)/CR_LENGTH, 6),
+                           n_human_CR_mapped_bp=len(anchors),
+                           mapped_CR_fraction=round(len(anchors)/CR_LENGTH, 6),
                            n_unique_mapped_species_bp=len(bases),
                            n_mapped_runs=mapped_runs(bases, len(original)))
             except (ValueError, OSError, IndexError) as e:
@@ -559,9 +594,11 @@ def main():
             direct_hit = ""
             direct_bp = ""
             direct_fraction = ""
+            anchor_direct_bp = ""
             if (m["pairing_status"] == "validated" and m["mapped_bases"] and
                     ori_direct_status == "predicted"):
                 direct_bp = len(m["mapped_bases"] & ori_positions)
+                anchor_direct_bp = len(m["anchor_bases"] & ori_positions)
                 direct_hit = int(direct_bp > 0)
                 direct_fraction = round(direct_bp / len(m["mapped_bases"]), 6)
             # Exact OriH-union denominator for both candidate methods.
@@ -573,6 +610,7 @@ def main():
                               if ori_direct_status == "predicted" else "")
             longest_metrics = orih_coverage_flags(longest_orih_bp, orih_bp)
             cr_metrics = orih_coverage_flags(direct_bp, orih_bp)
+            anchor_metrics = orih_coverage_flags(anchor_direct_bp, orih_bp)
             priority = orih_guided_strategy(ori_hit, direct_hit)
             priority_ge80 = priority_for_threshold(
                 longest_metrics, cr_metrics, "ge80")
@@ -584,6 +622,8 @@ def main():
                 name_ambiguous_within_rank=int(ambiguous),
                 genome_bp=length, pairwise_status=m["pairing_status"],
                 n_human_CR_mapped_bp=m["n_human_CR_mapped_bp"],
+                n_CR_species_insertions_bp=m["n_CR_species_insertions_bp"],
+                n_CR_expanded_species_bp=m["n_CR_expanded_species_bp"],
                 human_CR_bp=CR_LENGTH, CR_mapping_fraction=m["mapped_CR_fraction"]
                     if m["pairing_status"] == "validated" else "",
                 n_mapped_CR_runs=m["n_mapped_runs"]
@@ -610,6 +650,10 @@ def main():
                 Longest_OriH_any_exact=longest_metrics["any"],
                 Longest_OriH_ge80=longest_metrics["ge80"],
                 Longest_OriH_full=longest_metrics["full"],
+                CR_OriH_anchor_only_overlap_bp=anchor_direct_bp,
+                CR_OriH_anchor_only_coverage_fraction=anchor_metrics["fraction"],
+                CR_OriH_anchor_only_ge80=anchor_metrics["ge80"],
+                CR_OriH_anchor_only_full=anchor_metrics["full"],
                 CR_OriH_overlap_bp=direct_bp,
                 CR_OriH_overlap_any=direct_hit,
                 CR_OriH_overlap_label=overlap_label(direct_hit),
@@ -775,6 +819,7 @@ def main():
         "rank", "species", "sequence_sha256", "n_same_name_in_rank",
         "name_ambiguous_within_rank", "genome_bp", "pairwise_status",
         "n_human_CR_mapped_bp", "human_CR_bp", "CR_mapping_fraction",
+        "n_CR_species_insertions_bp", "n_CR_expanded_species_bp",
         "n_mapped_CR_runs", "CR_mapping_group", "CR_below_threshold",
         "mapped_CR_usable", "candidate_defined",
         "longest_gap_bp", "gap_start_1based", "gap_end_1based",
@@ -786,6 +831,9 @@ def main():
         "OriH_total_unique_bp",
         "Longest_OriH_overlap_bp_exact", "Longest_OriH_coverage_fraction",
         "Longest_OriH_any_exact", "Longest_OriH_ge80", "Longest_OriH_full",
+        "CR_OriH_anchor_only_overlap_bp",
+        "CR_OriH_anchor_only_coverage_fraction",
+        "CR_OriH_anchor_only_ge80", "CR_OriH_anchor_only_full",
         "CR_OriH_overlap_bp", "CR_OriH_overlap_any", "CR_OriH_overlap_label",
         "CR_OriH_fraction_of_mapped_CR",
         "CR_OriH_coverage_fraction", "CR_OriH_any_exact",
@@ -857,6 +905,8 @@ def main():
                rotindex_Sequence_Length=rot.get(identity[0], {}).get("length",""),
                unrot_genome_length=lengths[identity],
                n_human_CR_mapped_bp=v["n_human_CR_mapped_bp"],
+               n_CR_species_insertions_bp=v["n_CR_species_insertions_bp"],
+               n_CR_expanded_species_bp=v["n_CR_expanded_species_bp"],
                mapped_CR_fraction=v["mapped_CR_fraction"],
                n_mapped_runs=v["n_mapped_runs"])
           for identity,v in mapped.items()]
