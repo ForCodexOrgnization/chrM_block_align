@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Regression tests for circular overlap and coordinate conversion."""
 import unittest
+import tempfile
+from pathlib import Path
 from compare_pairwise_cr_to_longest_intervals import (
     in_gap, original_pos, cr_mapping_group, overlap_label, ori_group,
-    ori_overlap_value
+    ori_overlap_value, read_orih_positions, orih_guided_strategy
 )
 
 class TestCircularIntervals(unittest.TestCase):
@@ -61,6 +63,47 @@ class TestIndependentOverlapClassification(unittest.TestCase):
         row = dict(mitos2_gff_available="1", n_OriH_features="1",
                    OriH_overlaps="0")
         self.assertEqual(ori_overlap_value(row, False), "")
+
+
+class TestDirectCRvsOriH(unittest.TestCase):
+    def test_oriH_only_parent_feature(self):
+        gff = (
+            "mtDNA\tMITOS2\torigin_of_replication\t95\t5\t.\t+\t.\tID=OH;Name=OH\n"
+            "mtDNA\tMITOS2\texon\t96\t98\t.\t+\t.\tID=OH-b;Parent=OH\n"
+            "mtDNA\tMITOS2\torigin_of_replication\t20\t25\t.\t+\t.\tID=OL;Name=OL\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            filename = Path(tmp) / "test.gff"
+            filename.write_text(gff)
+            intervals, bases = read_orih_positions(filename, 100)
+        self.assertEqual(intervals, [(95, 5)])
+        self.assertEqual(bases, set(range(95, 101)) | set(range(1, 6)))
+        self.assertEqual(len({1, 2, 40} & bases), 2)
+
+    def test_two_features_and_union(self):
+        gff = (
+            "chrM\tx\torigin_of_replication\t10\t20\t.\t+\t.\tName=OH\n"
+            "chrM\tx\trep_origin\t18\t30\t.\t+\t.\tName=OriH\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            filename = Path(tmp) / "test.gff"
+            filename.write_text(gff)
+            intervals, bases = read_orih_positions(filename, 100)
+        self.assertEqual(len(intervals), 2)
+        self.assertEqual(len(bases), 21)
+
+    def test_fallback_order_and_intersection(self):
+        self.assertEqual(orih_guided_strategy(1, 1), {
+            "longest_first": "longest_interval",
+            "CR_first": "pairwise_CR", "selected": 1, "both": 1})
+        self.assertEqual(orih_guided_strategy(1, 0)["CR_first"],
+                         "longest_interval")
+        self.assertEqual(orih_guided_strategy(0, 1)["longest_first"],
+                         "pairwise_CR")
+        self.assertEqual(orih_guided_strategy("", 1)["selected"], 1)
+        self.assertEqual(orih_guided_strategy(0, "")["selected"], 0)
+        self.assertEqual(orih_guided_strategy(0, "")["CR_first"], "none")
+
 
 if __name__ == "__main__":
     unittest.main()
