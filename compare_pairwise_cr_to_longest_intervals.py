@@ -245,6 +245,70 @@ def ori_overlap_value(g, candidate_defined):
     return val if val in (0, 1) else ""
 
 
+
+def read_mitos2_paths(path):
+    paths = {}
+    with open(path, newline="", encoding="utf-8-sig") as fh:
+        for row in csv.DictReader(fh, delimiter="\t"):
+            key = norm(row.get("species", ""))
+            value = (row.get("result_gff") or "").strip()
+            if key and value:
+                if key in paths and paths[key] != value:
+                    raise ValueError("Conflicting MITOS2 GFF paths: " + key)
+                paths[key] = value
+    return paths
+
+
+def read_orih_positions(path, length):
+    """Parent heavy-strand OriH features only, same rules as longest-gap script."""
+    intervals = []
+    with open(path, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            if not line.strip() or line.startswith("#"):
+                continue
+            parts = line.rstrip("\n").split("\t")
+            if len(parts) < 9 or parts[2].lower() not in (
+                    "origin_of_replication", "rep_origin"):
+                continue
+            attrs = {}
+            for item in parts[8].split(";"):
+                if "=" in item:
+                    k, v = item.split("=", 1)
+                    attrs[k.casefold()] = v
+            labels = [re.sub("[^A-Z0-9]", "", attrs.get(k, "").upper())
+                      for k in ("name", "gene_id", "id", "product")]
+            if not any(x in {"OH", "ORIH", "GENEOH", "TRANSCRIPTOH",
+                             "HEAVYSTRANDORIGIN"} for x in labels):
+                continue
+            start, end = num(parts[3]), num(parts[4])
+            if not (start is not None and end is not None and
+                    1 <= start <= length and 1 <= end <= length):
+                raise ValueError(f"Bad OriH coordinates in {path}: {parts[3]}..{parts[4]}")
+            intervals.append((start, end))
+    positions = set()
+    for start, end in intervals:
+        if start <= end:
+            positions.update(range(start, end + 1))
+        else:
+            positions.update(range(start, length + 1))
+            positions.update(range(1, end + 1))
+    return intervals, positions
+
+
+def orih_guided_strategy(longest_hit, direct_cr_hit):
+    """Select on overlap with OriH, allowing exactly one fallback."""
+    long_yes = longest_hit == 1
+    cr_yes = direct_cr_hit == 1
+    return {
+        "longest_first": ("longest_interval" if long_yes else
+                          "pairwise_CR" if cr_yes else "none"),
+        "CR_first": ("pairwise_CR" if cr_yes else
+                     "longest_interval" if long_yes else "none"),
+        "selected": int(long_yes or cr_yes),
+        "both": int(long_yes and cr_yes),
+    }
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--pairwise-dir",
@@ -252,6 +316,7 @@ def main():
     p.add_argument("--rotindex", default="data/kingdom_rotindex.csv")
     p.add_argument("--unrot-fasta-dir", default="data/unrot_fasta")
     p.add_argument("--human-fasta", default="data/Humans_mtdna.fasta")
+    p.add_argument("--mitos2-summary", default="data/mitos2_species_summary.tsv")
     p.add_argument("--longest-tsv", default=(
         "longest_all_gene_desert_qc/longest_gene_free_interval_by_species.tsv"))
     p.add_argument("--ranks", nargs="+", choices=RANKS, default=list(RANKS))
@@ -270,6 +335,8 @@ def main():
     ref = human[0][1]
     rot = read_rotindex(a.rotindex)
     longest = read_longest(a.longest_tsv)
+    gff_paths = read_mitos2_paths(a.mitos2_summary)
+    ori_cache = {}
 
     # Indexed by file stem, so no folder scan inside each taxonomic rank.
     pairwise = {}
@@ -399,6 +466,39 @@ def main():
             defined = bool(g is not None and num(g.get("candidate_defined")) == 1)
             ori_status = ori_group(g, defined)
             ori_hit = ori_overlap_value(g, defined)
+            # Direct CR/OriH is independent of the presence of a longest gap.
+            ori_direct_status = "unavailable"
+            ori_positions = None
+            ori_features = ""
+            if ambiguous:
+                ori_direct_status = "ambiguous_species_name"
+            else:
+                gff = gff_paths.get(key)
+                if not gff:
+                    ori_direct_status = "missing_MITOS2_GFF_path"
+                elif not Path(gff).is_file():
+                    ori_direct_status = "missing_MITOS2_GFF_file"
+                else:
+                    cache_key = (key, length)
+                    if cache_key not in ori_cache:
+                        try:
+                            ivals, positions = read_orih_positions(gff, length)
+                            ori_cache[cache_key] = (
+                                "predicted" if ivals else "no_OriH_prediction",
+                                len(ivals), positions)
+                        except (ValueError, OSError) as exc:
+                            ori_cache[cache_key] = (
+                                "invalid_MITOS2_GFF:" + str(exc), "", None)
+                    ori_direct_status, ori_features, ori_positions = ori_cache[cache_key]
+            direct_hit = ""
+            direct_bp = ""
+            direct_fraction = ""
+            if (m["pairing_status"] == "validated" and m["mapped_bases"] and
+                    ori_direct_status == "predicted"):
+                direct_bp = len(m["mapped_bases"] & ori_positions)
+                direct_hit = int(direct_bp > 0)
+                direct_fraction = round(direct_bp / len(m["mapped_bases"]), 6)
+            priority = orih_guided_strategy(ori_hit, direct_hit)
             result = dict(
                 rank=rank, species=name, sequence_sha256=digest,
                 n_same_name_in_rank=rank_name_counts[(rank, key)],
@@ -423,6 +523,16 @@ def main():
                 OriH_overlap_bp=g.get("OriH_overlap_bp", "") if g and ori_hit != "" else "",
                 OriH_overlaps_longest=ori_hit,
                 OriH_overlap_label=overlap_label(ori_hit),
+                OriH_GFF_direct_status=ori_direct_status,
+                OriH_direct_n_features=ori_features,
+                CR_OriH_overlap_bp=direct_bp,
+                CR_OriH_overlap_any=direct_hit,
+                CR_OriH_overlap_label=overlap_label(direct_hit),
+                CR_OriH_fraction_of_mapped_CR=direct_fraction,
+                longest_first_source=priority["longest_first"],
+                CR_first_source=priority["CR_first"],
+                OriH_guided_selected=priority["selected"],
+                OriH_guided_both=priority["both"],
                 CR_overlap_bp="", CR_overlap_any="",
                 CR_overlap_label="unavailable",
                 mapped_CR_coverage_by_gap="",
@@ -507,6 +617,24 @@ def main():
                 lambda x: x["CR_overlap_any"] == 0 and x["OriH_overlaps_longest"] == 1),
             n_neither_overlap=count(
                 lambda x: x["CR_overlap_any"] == 0 and x["OriH_overlaps_longest"] == 0),
+            n_direct_CR_OriH_evaluable=count(
+                lambda x: x["CR_OriH_overlap_any"] != ""),
+            n_direct_CR_OriH_overlap=count(
+                lambda x: x["CR_OriH_overlap_any"] == 1),
+            n_direct_CR_OriH_overlap_below_threshold=count(
+                lambda x: x["CR_OriH_overlap_any"] == 1 and x["CR_below_threshold"] == 1),
+            n_OriH_guided_selected=count(
+                lambda x: x["OriH_guided_selected"] == 1),
+            n_both_sources_overlap_OriH=count(
+                lambda x: x["OriH_guided_both"] == 1),
+            n_longest_first_primary=count(
+                lambda x: x["longest_first_source"] == "longest_interval"),
+            n_longest_first_CR_fallback=count(
+                lambda x: x["longest_first_source"] == "pairwise_CR"),
+            n_CR_first_primary=count(
+                lambda x: x["CR_first_source"] == "pairwise_CR"),
+            n_CR_first_longest_fallback=count(
+                lambda x: x["CR_first_source"] == "longest_interval"),
         ))
         for status, group in sorted(
                 collections.Counter(x["support_class"] for x in rank_rows).items()):
@@ -519,6 +647,8 @@ def main():
               per_rank[-1]["n_longest_with_CR_overlap"],
               "OriH evaluable:", len(ori_evaluable),
               "OriH overlaps:", per_rank[-1]["n_longest_with_OriH_overlap"],
+              "direct CR/OriH overlaps:", per_rank[-1]["n_direct_CR_OriH_overlap"],
+              "either OriH-supported:", per_rank[-1]["n_OriH_guided_selected"],
               "legacy gap_end=0 checked:", n_endzero, flush=True)
 
     # Independent breakdowns, each with explicit unavailable strata.
@@ -555,6 +685,11 @@ def main():
         "mapped_CR_coverage_by_gap", "longest_gap_fraction_covered_by_CR",
         "OriH_status", "OriH_present", "OriH_overlap_bp",
         "OriH_overlaps_longest", "OriH_overlap_label",
+        "OriH_GFF_direct_status", "OriH_direct_n_features",
+        "CR_OriH_overlap_bp", "CR_OriH_overlap_any", "CR_OriH_overlap_label",
+        "CR_OriH_fraction_of_mapped_CR",
+        "longest_first_source", "CR_first_source",
+        "OriH_guided_selected", "OriH_guided_both",
         "CR_OriH_joint_support", "support_class"]
     write_tsv(out/"all_ranks_species_pairwise_CR_vs_longest.tsv",
               per_species, species_fields)
@@ -569,6 +704,29 @@ def main():
     write_tsv(out/"all_ranks_CR_OriH_joint_by_coverage.tsv",
               joint_by_group, ["rank", "CR_mapping_group", "CR_overlap_label",
                                "OriH_overlap_label", "n_species"])
+    strategies = []
+    for rank in a.ranks:
+        rows = [x for x in per_species if x["rank"] == rank]
+        long_primary = sum(x["longest_first_source"] == "longest_interval" for x in rows)
+        cr_fallback = sum(x["longest_first_source"] == "pairwise_CR" for x in rows)
+        cr_primary = sum(x["CR_first_source"] == "pairwise_CR" for x in rows)
+        long_fallback = sum(x["CR_first_source"] == "longest_interval" for x in rows)
+        selected = sum(x["OriH_guided_selected"] == 1 for x in rows)
+        both = sum(x["OriH_guided_both"] == 1 for x in rows)
+        assert long_primary + cr_fallback == cr_primary + long_fallback == selected
+        strategies.append(dict(
+            rank=rank, n_total_species=len(rows),
+            longest_first_primary=long_primary,
+            longest_first_CR_fallback=cr_fallback,
+            longest_first_total=selected,
+            CR_first_primary=cr_primary,
+            CR_first_longest_fallback=long_fallback,
+            CR_first_total=selected,
+            both_methods_overlap_OriH=both,
+            longest_only=long_fallback, CR_only=cr_fallback,
+            neither_selected=len(rows)-selected))
+    write_tsv(out/"all_ranks_OriH_guided_fallback_strategies.tsv",
+              strategies, list(strategies[0]))
     qc = [dict(species_key=identity[0], sequence_sha256=identity[1],
                pairwise_status=v["pairing_status"],
                rotation_convention=v["rotation_convention"],
