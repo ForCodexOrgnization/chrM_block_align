@@ -6,7 +6,8 @@ from pathlib import Path
 from compare_pairwise_cr_to_longest_intervals import (
     in_gap, original_pos, cr_mapping_group, overlap_label, ori_group,
     ori_overlap_value, read_orih_positions, orih_guided_strategy,
-    orih_coverage_flags, longest_orih_coverage, strategy_summary
+    orih_coverage_flags, longest_orih_coverage, strategy_summary,
+    mapped_human_cr, gap_column_in_human_cr
 )
 
 class TestCircularIntervals(unittest.TestCase):
@@ -155,6 +156,59 @@ class TestOriHCoverageThresholds(unittest.TestCase):
         any_result = strategy_summary(rows, "any")
         self.assertEqual(any_result["longest_first_total"], 4)
         self.assertEqual(any_result["both_methods"], 2)
+
+
+class TestHumanCRInsertionMapping(unittest.TestCase):
+    def test_gap_assignment_boundaries(self):
+        self.assertTrue(gap_column_in_human_cr(0))
+        self.assertTrue(gap_column_in_human_cr(1))
+        self.assertTrue(gap_column_in_human_cr(575))
+        self.assertFalse(gap_column_in_human_cr(576))
+        self.assertFalse(gap_column_in_human_cr(16023))
+        self.assertTrue(gap_column_in_human_cr(16024))
+        self.assertTrue(gap_column_in_human_cr(16569))
+
+    def test_internal_species_insertions_retained(self):
+        # Human 1,2,'-','-',3,4; two species bases are insertions.
+        expanded, anchor, n, h, sp = mapped_human_cr(
+            "AC--GT", "ACTGGT", 1, 6)
+        self.assertEqual(anchor, {1, 2, 5, 6})
+        self.assertEqual(expanded, {1, 2, 3, 4, 5, 6})
+        self.assertEqual((n, h, sp), (4, 4, 6))
+
+    def test_species_deletion_does_not_create_bases(self):
+        expanded, anchor, n, h, sp = mapped_human_cr(
+            "ACGT", "A-GT", 1, 3)
+        self.assertEqual(expanded, {1, 2, 3})
+        self.assertEqual(anchor, {1, 2, 3})
+        self.assertEqual((n, h, sp), (4, 4, 3))
+
+    def test_trailing_and_leading_reference_gaps_within_circular_cr(self):
+        expanded, anchor, n, h, sp = mapped_human_cr(
+            "--ACGT--", "TTACGTTT", 1, 8)
+        self.assertEqual(len(expanded), 8)
+        self.assertEqual(len(anchor), 4)
+
+    def test_reference_boundary_gap_outside_cr(self):
+        # 576 CR human positions, followed by a human gap insertion
+        # between reference 576 and 577, which must be excluded.
+        human = "A" * 576 + "--" + "C"
+        species = "A" * 576 + "GG" + "C"
+        expanded, anchor, n, h, sp = mapped_human_cr(
+            human, species, 1, len(species))
+        self.assertEqual(len(anchor), 576)
+        self.assertEqual(expanded, anchor)
+        self.assertEqual((n, h, sp), (576, 577, len(species)))
+
+    def test_ref_start_boundary_gap_outside_cr(self):
+        human = "A" * 16023 + "--" + "C"
+        species = "A" * 16023 + "GG" + "C"
+        expanded, anchor, n, h, sp = mapped_human_cr(
+            human, species, 1, len(species))
+        self.assertNotIn(16024, expanded)
+        self.assertNotIn(16025, expanded)
+        self.assertIn(16026, expanded)
+
 
 if __name__ == "__main__":
     unittest.main()
