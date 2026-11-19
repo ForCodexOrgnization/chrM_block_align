@@ -48,8 +48,8 @@ def test():
         raw="ACGTACGT"
         feature=Feature("G",2,6,"-")
         path=d/"01_G_core.aln.fa"
-        path.write_text(">Homo sapiens\\n"+rc(raw[2:6])+
-                        "\\n>sp1\\n"+rc(raw[2:6])+"\\n")
+        path.write_text(">Homo sapiens\n"+rc(raw[2:6])+
+                        "\n>sp1\n"+rc(raw[2:6])+"\n")
         # Core sequence happens to be palindromic here.
         positions=core_columns(path,"G",feature,raw,{"homosapiens","sp1"})
         assert set(positions) == {3,4,5,6}
