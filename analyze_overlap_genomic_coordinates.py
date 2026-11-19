@@ -93,7 +93,7 @@ def project_columns(aln_path, gene, human_feature, species_features, sequences,
         # Orientation after all reversals follows the actual species strand
         # transformed into the human gene's reference orientation.
         if feature.strand != human_feature.strand:
-            expected = base.rc(expected)
+            expected = expected.translate(base.COMP)
         if aligned_seq.replace("-", "") != expected:
             raise ValueError(f"MSA-to-FASTA validation failed for {species} {gene}")
         non_gap = 0
@@ -212,7 +212,6 @@ def run(args):
         with open(path,"w",newline="") as fh:
             w=csv.DictWriter(fh,fieldnames=list(rs[0]))
             w.writeheader();w.writerows(rs)
-    write(out/"species_coordinate_qc.tsv",rows) if False else None
     # CSV is easier to filter by position or species.
     write(out/"species_coordinate_qc.csv",rows)
     summary=[]
