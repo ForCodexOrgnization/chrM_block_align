@@ -22,7 +22,7 @@ from chrM_block_align import EXPECTED, Feature, circular, rc, norm
 from human_genbank import load_human_genbank
 
 BASES = set("ACGT")
-PATTERN = re.compile(r"^\\d+_(.+)_(core|pad(\\d+))\\.aln\\.fa$")
+PATTERN = re.compile(r"^\d+_(.+)_(core|pad(\d+))\.aln\.fa$")
 
 def read_fasta(path):
     from chrM_block_align import fasta
