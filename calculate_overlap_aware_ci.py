@@ -118,7 +118,7 @@ def compute_overlap(gene_calls, genes_at_pos, human, species, baseline):
             scores.append((gene, score))
             details.append(dict(Position=i, Gene=gene, Human=base, **score))
         overlap = len(genes) >= 2
-        summary = dict(Position=i, Human=base, n_human_genes=len(genes),
+        summary = dict(Position=i, Human=base, n_overlap_gene_contexts=len(genes),
                        genes=";".join(genes), is_overlap=int(overlap))
         for metric in ("CI_MSA", "CI_callable"):
             vals = [s[metric] for _, s in scores]
@@ -143,7 +143,7 @@ def compute_overlap(gene_calls, genes_at_pos, human, species, baseline):
                  "CI_callable": (f'{summary[f"CI_callable_{method}"]:.8f}'
                                  if overlap and summary[f"CI_callable_{method}"] is not None
                                  else row["CI_callable"]),
-                 "n_human_genes": len(genes), "genes": ";".join(genes),
+                 "n_overlap_gene_contexts": len(genes), "genes": ";".join(genes),
                  "overlap_aware": int(overlap)}
             methods[method].append(r)
     return details, positions, methods
