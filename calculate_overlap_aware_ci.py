@@ -210,7 +210,7 @@ def run(rank_dir, human_fasta, human_genbank, out_dir):
               "non_overlap":"baseline CI unchanged","missing_callable":"ignore unavailable gene contexts; fallback baseline if none",
               "note":"For ROC, compare methods on the identical variants. These are gene-context scores, not independently replicated nucleotides."}
     out_dir.mkdir(parents=True,exist_ok=True)
-    (out_dir/"summary.json").write_text(json.dumps(report,indent=2)+"\\n")
+    (out_dir/"summary.json").write_text(json.dumps(report,indent=2)+"\n")
     print(json.dumps(report,indent=2))
 
 def main():
