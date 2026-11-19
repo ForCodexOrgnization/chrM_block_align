@@ -45,12 +45,12 @@ def test():
     # Verify human negative-strand MSA is flipped back to reference orientation.
     with tempfile.TemporaryDirectory() as td:
         d=Path(td)
-        raw="ACGTACGT"
+        raw="AACTGCAA"
         feature=Feature("G",2,6,"-")
         path=d/"01_G_core.aln.fa"
         path.write_text(">Homo sapiens\n"+rc(raw[2:6])+
                         "\n>sp1\n"+rc(raw[2:6])+"\n")
-        # Core sequence happens to be palindromic here.
+        # Deliberately non-palindromic core, so reverse-complement is tested.
         positions=core_columns(path,"G",feature,raw,{"homosapiens","sp1"})
         assert set(positions) == {3,4,5,6}
         assert positions[3]["sp1"] == raw[2]
