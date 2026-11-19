@@ -35,14 +35,14 @@ the QC table reports zero callable gene contexts. The same species may
 contribute to both gene contexts, so the two CIs are **not** independent
 measurements or separately counted species.
 
-## Run on pre-existing class gene-only output
+## Run on selected tRNAscan + GenBank + MITOS2 fallback pad100 output (McCleary)
 
 ```bash
 cd /vast/palmer/scratch/lake_nicole/lt692/chrM_block_align
 git pull origin main
 python3 test_overlap_aware_ci.py
 python3 calculate_overlap_aware_ci.py \
-  --rank-dir block_results_v6/class \
+  --rank-dir block_results_genbank_trnascan_mitos_fallback_v2/pad100/class \
   --human-fasta data/Humans_mtdna.fasta \
   --human-genbank data/sequence.gb
 ```
@@ -62,19 +62,19 @@ FASTA does **not** retain discarded overlapping-gene calls; in that case
 the intermediate alignments must be restored or regenerated. Do **not**
 attempt to infer gene-context CI from the stitched FASTA alone.
 
-For padded results, choose their rank directory, e.g.:
+Other strategies can still be specified explicitly when needed, e.g.:
 
 ```bash
 python3 calculate_overlap_aware_ci.py \
   --rank-dir block_results_padded_v1/pad50/class
 ```
 
-For **all ten ranks** with existing complete alignments and baseline CI:
+For **all ten ranks** with existing complete alignments and baseline CI, the default source is now `block_results_genbank_trnascan_mitos_fallback_v2/pad100`. These use the tRNAscan-first / GenBank-second / MITOS2 fallback annotation hierarchy, with 100-bp padding. This scoring step does not rerun alignment:
 
 ```bash
 mkdir -p logs
 sbatch run_overlap_aware_ci_all_ranks.slurm
-# or reuse padded alignments:
+# optional override for alternative alignments:
 SOURCE_ROOT=block_results_padded_v1/pad50 sbatch --export=ALL,SOURCE_ROOT run_overlap_aware_ci_all_ranks.slurm
 ```
 
