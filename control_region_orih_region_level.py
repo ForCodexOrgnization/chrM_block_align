@@ -221,9 +221,10 @@ def analyze(dloop,misc,mitos_summary,out_dir):
             n_subfeatures_or_remnants=len(noteonly),
             n_cr1=sum(r["cr_label"]=="CR1" for r in full),
             n_cr2=sum(r["cr_label"]=="CR2" for r in full),
-            duplicated_cr_candidate=int(
-                any(r["cr_label"]=="CR1" for r in full) and
-                any(r["cr_label"]=="CR2" for r in full)),
+            duplicated_cr_candidate=int(any(
+                any(r["cr_label"]=="CR1" and r["acc"]==acc for r in full) and
+                any(r["cr_label"]=="CR2" and r["acc"]==acc for r in full)
+                for acc in {r["acc"] for r in full if r["acc"]})),
             n_mitos_orih=len(orih),n_full_regions_overlapping=overlapping,
             overlapping_labels=";".join(sorted(overlapping_labels)),
             accession_count=len(accs),
