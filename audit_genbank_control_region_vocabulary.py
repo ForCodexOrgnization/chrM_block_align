@@ -40,14 +40,14 @@ def classify(note, feature="", marked=False):
     txt=(note or "").strip()
     if match(REMNANT,txt):
         return "remnant","not_full_control_region"
+    if feature.casefold()=="d-loop":
+        return "explicit_cr","tier1"
     # Treat a feature as a subfeature only when its primary description is
     # itself a short motif; a full control region note may mention CSB/TAS.
     first_clause=re.split(r"[;|]",txt,1)[0].strip()
     if match(MOTIF,first_clause) and not (match(EXPLICIT,first_clause) and
             match(r"\b(?:contains|including|with)\b",first_clause)):
         return "subfeature","not_full_control_region"
-    if feature.casefold()=="d-loop":
-        return "explicit_cr","tier1"
     if match(EXPLICIT,txt):
         return ("putative_cr" if match(r"\b(?:putative|possible|probable|predicted)\b",txt)
                 else "explicit_cr"),"tier1"
