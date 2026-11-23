@@ -24,7 +24,7 @@ MOTIF = (r"\b(?:CSB[- _]?[0-9IVX]+|conserved sequence block|"
          r"coreTAS|TAS|termination.associated.sequence|SSB[- _]?[0-9IVX]+|"
          r"CoRe|control region conserved region|control region C.rich sequence|"
          r"C.rich sequence|mtTERM binding site)\b")
-EXPLICIT = r"\b(?:control|contral|contorl|conrtol|cntrol)[-_ ]+region\b|\bD[-_ ]?loop\b"
+EXPLICIT = r"\b(?:control|contral|contorl|conrtol|cntrol|conrol|conrol)[-_ ]+region\b|\bD[-_ ]?loop\b"
 AT_RICH = (r"\b(?:A\s*[+&/\-]\s*T|A\s*T|AT)[-_ ]*rich\b|"
            r"\bAT[-_ ]?(?:loop|region)\b|\bAT_rich\b|"
            r"\bA[+&/]T[-_ ]?region\b|\bA[-_ ]T[-_ ]rich\b|\bA[-_ ]T[-_ ]region\b")
@@ -41,7 +41,8 @@ def classify(note, feature="", marked=False):
     if match(REMNANT,txt):
         return "remnant","not_full_control_region"
     if feature.casefold()=="d-loop":
-        return "explicit_cr","tier1"
+        return ("putative_cr" if match(r"\\b(?:putative|possible|probable|predicted)\\b",txt)
+                else "explicit_cr"),"tier1"
     # Treat a feature as a subfeature only when its primary description is
     # itself a short motif; a full control region note may mention CSB/TAS.
     first_clause=re.split(r"[;|]",txt,1)[0].strip()
