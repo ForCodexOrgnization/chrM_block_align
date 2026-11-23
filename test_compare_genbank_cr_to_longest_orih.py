@@ -4,10 +4,13 @@ from compare_genbank_cr_to_longest_orih import (
     coordinates_to_set, evaluate_longest, evaluate_regions, deduplicate)
 
 
-def region(a,b,label="CR_unspecified",source="D-loop"):
+def region(a,b,label="CR_unspecified",source="D-loop",note=None):
+    if note is None:
+        note = ("control region 1" if label == "CR1" else
+                "control region 2" if label == "CR2" else "control region")
     return dict(species="test",acc="NC_TEST",intervals=[(a,b)],
                 classification="full_control_region",cr_label=label,
-                source=source)
+                source=source,note=note)
 
 
 def test_distinct_regions_do_not_combine():
@@ -45,7 +48,7 @@ def test_circular_containment():
 
 
 def test_subregion_not_considered_full():
-    r=region(10,20)
+    r=region(10,20,source="misc_feature",note="control region CSB-1")
     r["classification"]="subfeature"
     assert deduplicate([r])=={}
 
