@@ -10,14 +10,9 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR}"
 PYTHON="${PYTHON:-python3}"
 "${PYTHON}" test_control_region_orih_qc.py
+"${PYTHON}" test_control_region_orih_region_level.py
 "${PYTHON}" check_genbank_control_region_mitos2_orih.py \
   --dloop data/kingdom_genbank_annotations_split_new.csv \
   --misc data/genbank_misc_ftr.csv \
   --mitos-summary data/mitos2_species_summary.tsv \
-  --out-dir control_region_orih_qc/strict
-"${PYTHON}" check_genbank_control_region_mitos2_orih.py \
-  --dloop data/kingdom_genbank_annotations_split_new.csv \
-  --misc data/genbank_misc_ftr.csv \
-  --mitos-summary data/mitos2_species_summary.tsv \
-  --expanded \
-  --out-dir control_region_orih_qc/expanded
+  --out-dir control_region_orih_qc/region_level
