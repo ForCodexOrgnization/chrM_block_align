@@ -142,6 +142,112 @@ def parse_misc(path):
     return result
 
 
+
+def deduplicate_regions(regions):
+    """Merge exactly matching intervals on the same species+accession.
+
+    Overlapping or adjacent but different CR1/CR2 regions remain separate.
+    Keep all annotation provenance in the merged record.
+    """
+    found={}
+    conflicts=[]
+    priority={"full_control_region":4,"putative_control_region":3,
+              "expanded_candidate":2,"subfeature":1,"remnant":0}
+    for row in regions:
+        signature=(row["species"],row["acc"],tuple(sorted(set(row["intervals"]))))
+        if signature not in found:
+            item=row.copy()
+            item["annotation_sources"]={row["source"]}
+            item["annotation_notes"]={row["note"]}
+            item["annotation_ids"]={row["source"]+":"+row["source_id"]}
+            found[signature]=item
+            continue
+        rec=found[signature]
+        rec["annotation_sources"].add(row["source"])
+        rec["annotation_notes"].add(row["note"])
+        rec["annotation_ids"].add(row["source"]+":"+row["source_id"])
+        labels={x for x in (rec["cr_label"],row["cr_label"]) if x in ("CR1","CR2")}
+        if len(labels)>1:
+            conflicts.append(dict(species=row["display"],accession=row["acc"],
+                                  intervals=str(signature[-1]),problem="conflicting_cr_copy_labels"))
+            rec["cr_label"]="CR_conflict"
+        elif len(labels)==1 and rec["cr_label"]!="CR_conflict":
+            rec["cr_label"]=next(iter(labels))
+        if priority[row["classification"]]>priority[rec["classification"]]:
+            rec["classification"]=row["classification"]
+    return list(found.values()),conflicts
+
+
+def fasta_sequence(path):
+    """One sequence per FASTA only: refuse ambiguous multi-record input."""
+    path=Path(path)
+    if not path.is_file():
+        return None,"fasta_missing"
+    parts=[];records=0
+    with path.open(encoding="utf-8") as fh:
+        for line in fh:
+            if line.startswith(">"):
+                records+=1
+            else:
+                parts.append(line.strip().upper())
+    if records!=1:
+        return None,"not_single_sequence_fasta"
+    seq="".join(parts)
+    if not seq or re.search("[^ACGTN]",seq):
+        return None,"invalid_fasta_sequence"
+    return seq,"ok"
+
+
+def compare_fasta(genbank_path,mitos_path):
+    g,gs=fasta_sequence(genbank_path)
+    m,ms=fasta_sequence(mitos_path)
+    if gs!="ok" or ms!="ok":
+        return gs if gs!="ok" else ms
+    if g==m:
+        return "identical"
+    if len(g)!=len(m):
+        return "different_length"
+    if m in g+g:
+        return "rotated"
+    rc=g.translate(str.maketrans("ACGTN","TGCAN"))[::-1]
+    if m==rc:
+        return "reverse_complement"
+    if m in rc+rc:
+        return "reverse_complement_rotated"
+    return "sequence_mismatch"
+
+
+def read_fasta_manifest(path):
+    """Optional TSV: species genbank_accession genbank_fasta mitos_fasta."""
+    if not path:
+        return {}
+    manifest=Path(path).resolve()
+    results={}
+    with manifest.open(newline="",encoding="utf-8-sig") as fh:
+        for row in csv.DictReader(fh,delimiter="\t"):
+            species=key(row.get("species"))
+            acc=(row.get("genbank_accession") or "").strip()
+            gb=(row.get("genbank_fasta") or "").strip()
+            mit=(row.get("mitos_fasta") or "").strip()
+            if not all((species,acc,gb,mit)):
+                raise ValueError("assembly manifest requires species,genbank_accession,genbank_fasta,mitos_fasta")
+            k=(species,acc)
+            if k in results:
+                raise ValueError("duplicate assembly manifest key "+str(k))
+            results[k]=(str((manifest.parent/gb).resolve()),str((manifest.parent/mit).resolve()))
+    return results
+
+
+def verify_species_coordinate(species,accessions,manifest):
+    if len(accessions)!=1:
+        return "ambiguous_genbank_accession"
+    acc=next(iter(accessions))
+    pair=manifest.get((species,acc))
+    if not pair:
+        return "no_fasta_pair"
+    return compare_fasta(*pair)
+
+
 def load_mitos(path):
     path=Path(path).resolve()
     result=collections.defaultdict(list)
@@ -153,10 +259,12 @@ def load_mitos(path):
     return path,result
 
 
-def analyze(dloop,misc,mitos_summary,out_dir):
+def analyze(dloop,misc,mitos_summary,out_dir,assembly_manifest=None,allow_unverified=False):
     out=Path(out_dir);out.mkdir(parents=True,exist_ok=True)
     dloop_regions,invalid=parse_dloop(dloop)
-    all_regions=dloop_regions+parse_misc(misc)
+    raw_regions=dloop_regions+parse_misc(misc)
+    all_regions,conflicts=deduplicate_regions(raw_regions)
+    manifest=read_fasta_manifest(assembly_manifest)
     mitos_path,mitos=load_mitos(mitos_summary)
     by_species=collections.defaultdict(list)
     for region in all_regions:
@@ -189,6 +297,9 @@ def analyze(dloop,misc,mitos_summary,out_dir):
         # positional comparison. Report separately with an explicit warning.
         if len(accs)>1 and status=="evaluated":
             status="multiple_genbank_accessions"
+        verification=verify_species_coordinate(species,accs,manifest)
+        if status=="evaluated" and verification!="identical" and not allow_unverified:
+            status="coordinate_unverified"
         overlapping=0
         overlapping_labels=set()
         for index,r in enumerate(regions,1):
@@ -204,7 +315,10 @@ def analyze(dloop,misc,mitos_summary,out_dir):
                 species=r["display"],organism_key=species, accession=r["acc"],
                 region_id=f"{r['source']}:{r['source_id']}:{index}",
                 region_label=r["cr_label"],region_type=r["classification"],
-                source=r["source"],note=r["note"],
+                source=";".join(sorted(r["annotation_sources"])),
+                note=";".join(sorted(r["annotation_notes"])),
+                n_annotations_merged=len(r["annotation_ids"]),
+                coordinate_verification=verification,
                 n_segments=len(r["intervals"]),
                 intervals=";".join(f"{a}-{b}" for a,b in r["intervals"]),
                 n_orih_features=len(orih),
@@ -228,20 +342,24 @@ def analyze(dloop,misc,mitos_summary,out_dir):
             n_mitos_orih=len(orih),n_full_regions_overlapping=overlapping,
             overlapping_labels=";".join(sorted(overlapping_labels)),
             accession_count=len(accs),
+            coordinate_verification=verification,
             status=status if full else "no_full_control_region"
         ))
     region_columns=[
         "species","organism_key","accession","region_id","region_label",
-        "region_type","source","note","n_segments","intervals",
+        "region_type","source","note","n_annotations_merged",
+        "coordinate_verification","n_segments","intervals",
         "n_orih_features","orih_intervals","overlap_bp","overlaps_orih","status"]
     species_columns=[
         "species","organism_key","n_full_regions","n_expanded_candidates",
         "n_subfeatures_or_remnants","n_cr1","n_cr2",
         "duplicated_cr_candidate","n_mitos_orih",
-        "n_full_regions_overlapping","overlapping_labels","accession_count","status"]
+        "n_full_regions_overlapping","overlapping_labels","accession_count",
+        "coordinate_verification","status"]
     write_csv(out/"region_overlap.csv",region_rows,region_columns)
     write_csv(out/"species_overlap.csv",species_rows,species_columns)
     write_csv(out/"invalid_split_dloop.csv",invalid,["group","problem"])
+    write_csv(out/"dedup_label_conflicts.csv",conflicts,["species","accession","intervals","problem"])
     summary={
         "n_species_with_any_candidate_annotation":len(species_rows),
         "n_species_with_full_or_putative_control_region":sum(
@@ -250,6 +368,12 @@ def analyze(dloop,misc,mitos_summary,out_dir):
             r["duplicated_cr_candidate"] for r in species_rows),
         "n_full_regions":sum(r["n_full_regions"] for r in species_rows),
         "n_invalid_split_dloop":len(invalid),
+        "n_raw_annotations":len(raw_regions),
+        "n_unique_regions":len(all_regions),
+        "n_merged_duplicate_annotations":len(raw_regions)-len(all_regions),
+        "n_label_conflicts":len(conflicts),
+        "n_identical_fasta_verified_species":sum(x["coordinate_verification"]=="identical" for x in species_rows),
+        "allow_unverified":allow_unverified,
         "region_type_counts":dict(collections.Counter(
             r["region_type"] for r in region_rows)),
         "species_status_counts":dict(collections.Counter(
@@ -268,8 +392,13 @@ def main():
     p.add_argument("--misc",default="data/genbank_misc_ftr.csv")
     p.add_argument("--mitos-summary",default="data/mitos2_species_summary.tsv")
     p.add_argument("--out-dir",default="control_region_orih_qc/region_level")
+    p.add_argument("--assembly-manifest",help="TSV with species,genbank_accession,genbank_fasta,mitos_fasta")
+    p.add_argument("--allow-unverified-coordinates",action="store_true",
+                   help="Exploratory: compute raw overlap without verified matching FASTA")
     args=p.parse_args()
-    analyze(args.dloop,args.misc,args.mitos_summary,args.out_dir)
+    analyze(args.dloop,args.misc,args.mitos_summary,args.out_dir,
+            assembly_manifest=args.assembly_manifest,
+            allow_unverified=args.allow_unverified_coordinates)
 
 if __name__=="__main__":
     main()
