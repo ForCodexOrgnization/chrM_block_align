@@ -10,6 +10,6 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR}"
 PYTHON="${PYTHON:-/vast/palmer/home.mccleary/njl27/shared/mt_calling_inputs/required_software/hail-conda/bin/python}"
 "${PYTHON}" analyze_overlap_genomic_coordinates.py \
-  --rank-dir block_results_genbank_trnascan_mitos_fallback_v2/pad100/kingdom \
+  --rank-dir block_results_genbank_trnascan_mitos_fallback_split_v3/pad100/kingdom \
   --genes ATP6 ATP8 \
   --positions 8527 8530 8531 8563
