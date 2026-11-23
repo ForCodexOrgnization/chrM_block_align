@@ -10,7 +10,7 @@
 set -euo pipefail
 cd "${SLURM_SUBMIT_DIR}"
 PYTHON="${PYTHON:-/vast/palmer/home.mccleary/njl27/shared/mt_calling_inputs/required_software/hail-conda/bin/python}"
-SOURCE_ROOT="${SOURCE_ROOT:-block_results_genbank_trnascan_mitos_fallback_v2/pad100}"
+SOURCE_ROOT="${SOURCE_ROOT:-block_results_genbank_trnascan_mitos_fallback_split_v3/pad100}"
 RANKS=(kingdom phylum subphylum superclass class superorder order suborder infraorder parvorder)
 RANK="${RANKS[${SLURM_ARRAY_TASK_ID}]}"
 "${PYTHON}" analyze_overlap_alignment_qc.py \
