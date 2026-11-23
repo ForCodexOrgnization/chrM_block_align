@@ -24,8 +24,10 @@ from analyze_longest_all_gene_desert import spans, norm
 from compare_pairwise_cr_to_longest_intervals import (
     RANKS, read_orih_positions, read_longest, read_mitos2_paths, in_gap)
 from control_region_orih_region_level import parse_dloop, parse_misc
+from audit_genbank_control_region_vocabulary import classify as classify_vocabulary
 
-FULL_TYPES = {"full_control_region", "putative_control_region"}
+# Inclusive GenBank definition through "+ Tier 2 review", excluding Tier 3.
+INCLUDED_VOCAB_TIERS = {"tier1", "tier1_review", "tier2", "tier2_review"}
 CATEGORIES = ("Longest", "GenBank_CR", "Both", "Either")
 
 
@@ -37,25 +39,36 @@ def write_tsv(path, rows, names):
 
 
 def deduplicate(regions):
-    """Exact physical region duplicates across D-loop and misc_feature."""
-    data={}
-    priorities={"full_control_region":2,"putative_control_region":1}
+    """Keep every GenBank candidate through Tier 2 review, not longest.
+
+    Exact matching coordinates are merged only within species/accession.
+    Distinct CR1 and CR2 intervals remain independent for 100% containment.
+    """
+    data = {}
+    tier_order = {"tier1": 0, "tier1_review": 1, "tier2": 2, "tier2_review": 3}
     for region in regions:
-        if region["classification"] not in FULL_TYPES:
+        feature = "D-loop" if region["source"] == "D-loop" else ""
+        category, tier = classify_vocabulary(region["note"], feature)
+        if tier not in INCLUDED_VOCAB_TIERS:
             continue
-        key=(region["species"], region["acc"], tuple(sorted(set(region["intervals"]))))
-        if key not in data:
-            item=dict(region)
-            item["sources"]={region["source"]}
-            data[key]=item
+        identity = (region["species"], region["acc"],
+                    tuple(sorted(set(region["intervals"]))))
+        if identity not in data:
+            item = dict(region)
+            item["sources"] = {region["source"]}
+            item["vocabulary_tier"] = tier
+            item["vocabulary_category"] = category
+            data[identity] = item
         else:
-            obj=data[key]
+            obj = data[identity]
             obj["sources"].add(region["source"])
-            if priorities[region["classification"]]>priorities[obj["classification"]]:
-                obj["classification"]=region["classification"]
-            if obj["cr_label"]=="CR_unspecified" and region["cr_label"]!="CR_unspecified":
-                obj["cr_label"]=region["cr_label"]
-    grouped=collections.defaultdict(list)
+            if tier_order[tier] < tier_order[obj["vocabulary_tier"]]:
+                obj["vocabulary_tier"] = tier
+                obj["vocabulary_category"] = category
+            if (obj["cr_label"] == "CR_unspecified" and
+                    region["cr_label"] != "CR_unspecified"):
+                obj["cr_label"] = region["cr_label"]
+    grouped = collections.defaultdict(list)
     for region in data.values():
         grouped[region["species"]].append(region)
     return grouped
@@ -198,6 +211,7 @@ def compare(longest_tsv, dloop, misc, mitos_summary, out_dir, ranks=RANKS):
         denominators=["OriH_predicted_species","All_species"],
         definition="All OriH bases must lie within ONE candidate region; candidates cannot concatenate partial coverage.",
         categories=list(CATEGORIES),
+        genbank_CR_definition="All GenBank candidates through Tier 2 review; excludes Tier 3 longest gap, subfeatures, remnants and replication origins.",
         caveat="GenBank/MITOS2 assembly and circular coordinate origin must be verified separately; these raw positional comparisons are provisional.",
         longest_source=str(longest_tsv))
     (out/"summary.json").write_text(json.dumps(summary,indent=2)+"\n")
@@ -218,26 +232,30 @@ def plot(counts,out_dir):
         rows={r["rank"]:r for r in counts if r["denominator"]==denom}
         ranks=[rank for rank in RANKS if rank in rows]
         x=np.arange(len(ranks))
-        fig,ax=plt.subplots(figsize=(12.8,5))
-        w=.19
-        for i,(c,label,color) in enumerate(zip(CATEGORIES,labels,colors)):
-            y=[float(rows[r]["pct_"+c]) for r in ranks]
-            ax.bar(x+(i-1.5)*w,y,w,label=label,color=color)
-        ax.set_ylim(0,100)
-        ax.set_yticks(range(0,101,20))
-        ax.set_yticklabels([f"{i}%" for i in range(0,101,20)])
+        fig, ax = plt.subplots(figsize=(12.8, 5.5))
+        # Reserve a dedicated top band for title and legend.
+        fig.subplots_adjust(left=.085, right=.985, bottom=.23, top=.72)
+        w = .19
+        for i, (category, label, color) in enumerate(zip(CATEGORIES, labels, colors)):
+            y = [float(rows[r]["pct_" + category]) for r in ranks]
+            ax.bar(x + (i - 1.5) * w, y, w, label=label, color=color)
+        ax.set_ylim(0, 100)
+        ax.set_yticks(range(0, 101, 20))
+        ax.set_yticklabels([f"{i}%" for i in range(0, 101, 20)])
         ax.set_xticks(x)
-        ax.set_xticklabels(ranks,rotation=35,ha="right")
+        ax.set_xticklabels(ranks, rotation=35, ha="right")
         ax.set_xlabel("Taxonomic rank")
-        ax.set_ylabel("Species (%)")
-        ax.grid(axis="y",alpha=.25,linestyle="--")
+        ax.set_ylabel("All species (%)" if denom == "All_species"
+                      else "MITOS2 OriH-predicted species (%)")
+        ax.grid(axis="y", alpha=.25, linestyle="--")
         ax.set_axisbelow(True)
-        ax.set_title("OriH containment across taxonomic ranks\n"
-                     "100% OriH coverage | "+subtitle,loc="left",
-                     fontweight="bold",pad=14)
-        fig.legend(loc="upper center",bbox_to_anchor=(.5,.99),ncol=4,
-                   frameon=False,fontsize=9)
-        fig.tight_layout(rect=(0,0,1,.86))
+        fig.text(.085, .95, "OriH containment across taxonomic ranks",
+                 ha="left", va="top", fontsize=15, fontweight="bold")
+        fig.text(.085, .895, "100% OriH coverage | " + subtitle,
+                 ha="left", va="top", fontsize=12)
+        fig.legend(*ax.get_legend_handles_labels(), loc="upper center",
+                   bbox_to_anchor=(.54, .835), ncol=4, frameon=False,
+                   fontsize=9)
         name=("orih_containment_genbank_predicted" if denom=="OriH_predicted_species"
               else "orih_containment_genbank_all_species")
         fig.savefig(out/(name+".png"),dpi=220,bbox_inches="tight")
