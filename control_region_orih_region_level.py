@@ -31,25 +31,29 @@ PART = re.compile(r"part\s+(\d+)\s*/\s*(\d+)", re.I)
 
 
 def classify(text, dloop=False, dloop_like=False):
-    """Whole-region annotations are distinct from internal motifs/remnants."""
-    if REMNANT.search(text):
+    """Use the same vocabulary hierarchy as Kingdom-wide audit."""
+    from audit_genbank_control_region_vocabulary import classify as vocabulary_classify
+    category, tier = vocabulary_classify(text, "D-loop" if dloop else "", dloop_like)
+    if category == "remnant":
         return "remnant"
-    if SUBFEATURE.search(text):
+    if category == "subfeature":
         return "subfeature"
-    if dloop or CONTROL.search(text) or dloop_like:
-        if re.search(r"\b(?:putative|probable|possible|predicted)\b", text, re.I):
-            return "putative_control_region"
+    if category == "putative_cr":
+        return "putative_control_region"
+    if category == "explicit_cr":
         return "full_control_region"
-    if EXPANDED.search(text):
+    if category in ("numbered_cr_abbreviation", "source_dloop_like",
+                    "at_rich_alternative", "long_noncoding_alternative"):
         return "expanded_candidate"
+    if category == "replication_origin_only":
+        return "origin_only"
     return "unrelated"
-
 
 def cr_label(text):
     # Exact numbered CR labels only; unnumbered duplicated copies stay unknown.
-    if re.search(r"\bcontrol[ -]?region\s*(?:copy\s*)?(?:1|i)\b|\bcr[- _]?(?:1|i)\b(?!i)", text, re.I):
+    if re.search(r"\b(?:control|contral|conrol)[ -]?region\s*(?:copy\s*)?(?:1|i)\b|\bcr[- _]?(?:1|i)\b(?!i)", text, re.I):
         return "CR1"
-    if re.search(r"\bcontrol[ -]?region\s*(?:copy\s*)?(?:2|ii)\b|\bcr[- _]?(?:2|ii)\b", text, re.I):
+    if re.search(r"\b(?:control|contral|conrol)[ -]?region\s*(?:copy\s*)?(?:2|ii)\b|\bcr[- _]?(?:2|ii)\b", text, re.I):
         return "CR2"
     return "CR_unspecified"
 
