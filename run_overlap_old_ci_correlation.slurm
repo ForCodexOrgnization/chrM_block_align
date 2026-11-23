@@ -11,5 +11,5 @@ cd "${SLURM_SUBMIT_DIR}"
 export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1 MPLBACKEND=Agg
 PYTHON="${PYTHON:-/vast/palmer/home.mccleary/njl27/shared/mt_calling_inputs/required_software/hail-conda/bin/python}"
 "${PYTHON}" compare_overlap_old_ci_correlation.py \
-  --results-root block_results_genbank_trnascan_mitos_fallback_v2/pad100 \
+  --results-root block_results_genbank_trnascan_mitos_fallback_split_v3/pad100 \
   --old-csv data/2026_10_10_mito_cons_anns_main.csv
