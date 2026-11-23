@@ -4,7 +4,7 @@ import csv
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from control_region_orih_region_level import analyze, classify, cr_label
+from control_region_orih_region_level import analyze, classify, cr_label, deduplicate_regions, compare_fasta
 
 
 def write(path, fields, rows, delim=","):
@@ -65,7 +65,33 @@ def test_region_level():
         assert a["duplicated_cr_candidate"]=="1"
 
 
+
+
+def test_deduplication_and_fasta():
+    first=dict(species="test",display="Test",acc="NC_1",source="D-loop",
+               source_id="1",note="control region",classification="full_control_region",
+               cr_label="CR_unspecified",intervals=[(100,200)])
+    second=dict(first,source="misc_feature",source_id="2",note="control region 1",
+                cr_label="CR1")
+    third=dict(first,source_id="3",cr_label="CR2",intervals=[(201,300)])
+    unique,conflicts=deduplicate_regions([first,second,third])
+    assert not conflicts and len(unique)==2
+    assert unique[0]["cr_label"]=="CR1"
+    assert unique[0]["annotation_sources"]=={"D-loop","misc_feature"}
+    assert unique[1]["cr_label"]=="CR2"
+    with TemporaryDirectory() as tmp:
+        a=Path(tmp)/"genbank.fasta"
+        b=Path(tmp)/"mitos.fasta"
+        a.write_text(">gb\nACGTACGT\n")
+        b.write_text(">mi\nACGTACGT\n")
+        assert compare_fasta(a,b)=="identical"
+        b.write_text(">mi\nGTACGTAC\n")
+        assert compare_fasta(a,b)=="rotated"
+        b.write_text(">mi\nACGTACGA\n")
+        assert compare_fasta(a,b)=="sequence_mismatch"
+
 if __name__=="__main__":
     test_categories()
     test_region_level()
+    test_deduplication_and_fasta()
     print("PASS CR1 CR2 region-level QC tests")
