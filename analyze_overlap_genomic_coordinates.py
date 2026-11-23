@@ -25,7 +25,7 @@ BASES = set("ACGT")
 
 
 def gene_footprint(feature, length):
-    return {i % length for i in range(feature.start, feature.end)}
+    return {i % length for a,b in (feature.segments or ((feature.start,feature.end),)) for i in range(a,b)}
 
 
 def physical_overlap(first, second, length):
@@ -39,9 +39,12 @@ def source_coordinates(feature, length, padding, left, right, human_strand):
     for negative species strand, and finally reverses negative HUMAN blocks.
     Each of those two strand flips reverses nucleotide-to-position order.
     """
-    beg = feature.start - (padding if left else 0)
-    end = feature.end + (padding if right else 0)
-    coords = [i % length + 1 for i in range(beg, end)]
+    intervals=feature.segments or ((feature.start,feature.end),)
+    core=[i % length + 1 for a,b in intervals for i in range(a,b)]
+    first,last=core[0],core[-1]
+    coords=([(first-1-i)%length+1 for i in range(padding if left else 0,0,-1)] +
+            core +
+            [(last-1+i)%length+1 for i in range(1,(padding if right else 0)+1)])
     if (feature.strand == "-") != (human_strand == "-"):
         coords.reverse()
     return coords
@@ -204,8 +207,10 @@ def run(args):
                                        if feat_a is not None and feat_b is not None else ""),
                 Gene_A_start=(feat_a.start+1 if feat_a else ""),
                 Gene_A_end=(feat_a.end if feat_a else ""),
+                Gene_A_segments=(str(feat_a.segments) if feat_a else ""),
                 Gene_B_start=(feat_b.start+1 if feat_b else ""),
                 Gene_B_end=(feat_b.end if feat_b else ""),
+                Gene_B_segments=(str(feat_b.segments) if feat_b else ""),
                 Status=status
             ))
     def write(path,rs):
@@ -240,7 +245,7 @@ def main():
     p.add_argument("--padding",type=int,default=100)
     p.add_argument("--fasta-dir",default="data/unrot_fasta")
     p.add_argument("--human-genbank",default="data/sequence.gb")
-    p.add_argument("--genbank-annotations",default="data/kingdom_genes_v2.csv")
+    p.add_argument("--genbank-annotations",default="data/kingdom_genbank_annotations_split_new.csv")
     p.add_argument("--gene-aliases",default="data/genefiltfinal5_2026_09_24.csv")
     p.add_argument("--trnascan-csv",default="data/consolidated_trnascan-2.csv")
     p.add_argument("--mitos2-summary",default="data/mitos2_species_summary.tsv")
