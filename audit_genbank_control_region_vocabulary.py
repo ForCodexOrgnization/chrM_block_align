@@ -27,7 +27,7 @@ MOTIF = (r"\b(?:CSB[- _]?[0-9IVX]+|conserved sequence block|"
 EXPLICIT = r"\b(?:control|contral|contorl|conrtol|cntrol)[-_ ]+region\b|\bD[-_ ]?loop\b"
 AT_RICH = (r"\b(?:A\s*[+&/\-]\s*T|A\s*T|AT)[-_ ]*rich\b|"
            r"\bAT[-_ ]?(?:loop|region)\b|\bAT_rich\b|"
-           r"\bA[+&/]T[-_ ]?region\b")
+           r"\bA[+&/]T[-_ ]?region\b|\bA[-_ ]T[-_ ]rich\b|\bA[-_ ]T[-_ ]region\b")
 NONCODING = r"\b(?:major|long|large)[-_ ]+(?:non[-_ ]?coding|intergenic)(?:[-_ ]+region)?\b"
 ORIGIN = (r"\b(?:origin of replication|replication origin|"
           r"heavy strand origin|Ori[-_ ]?[HL]|OH|OL)\b")
@@ -40,7 +40,11 @@ def classify(note, feature="", marked=False):
     txt=(note or "").strip()
     if match(REMNANT,txt):
         return "remnant","not_full_control_region"
-    if match(MOTIF,txt):
+    # Treat a feature as a subfeature only when its primary description is
+    # itself a short motif; a full control region note may mention CSB/TAS.
+    first_clause=re.split(r"[;|]",txt,1)[0].strip()
+    if match(MOTIF,first_clause) and not (match(EXPLICIT,first_clause) and
+            match(r"\b(?:contains|including|with)\b",first_clause)):
         return "subfeature","not_full_control_region"
     if feature.casefold()=="d-loop":
         return "explicit_cr","tier1"
