@@ -56,7 +56,7 @@ def classify(note, feature="", marked=False):
         return "numbered_cr_abbreviation","tier1_review"
     if marked:
         return "source_dloop_like","tier1_review"
-    if match(AT_RICH,txt):
+    if match(AT_RICH,txt) or match(r"\(\s*A\s*\+\s*T\s*\)[-_ ]*rich",txt):
         return "at_rich_alternative","tier2"
     if match(NONCODING,txt):
         return "long_noncoding_alternative","tier2_review"
