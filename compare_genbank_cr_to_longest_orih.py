@@ -233,10 +233,11 @@ def plot(counts,out_dir):
         ax.grid(axis="y",alpha=.25,linestyle="--")
         ax.set_axisbelow(True)
         ax.set_title("OriH containment across taxonomic ranks\n"
-                     "100% OriH coverage | "+subtitle,loc="left",fontweight="bold")
-        ax.legend(loc="upper center",bbox_to_anchor=(.5,1.16),ncol=4,
-                  frameon=False,fontsize=9)
-        fig.tight_layout()
+                     "100% OriH coverage | "+subtitle,loc="left",
+                     fontweight="bold",pad=14)
+        fig.legend(loc="upper center",bbox_to_anchor=(.5,.99),ncol=4,
+                   frameon=False,fontsize=9)
+        fig.tight_layout(rect=(0,0,1,.86))
         name=("orih_containment_genbank_predicted" if denom=="OriH_predicted_species"
               else "orih_containment_genbank_all_species")
         fig.savefig(out/(name+".png"),dpi=220,bbox_inches="tight")
