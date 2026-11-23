@@ -43,30 +43,88 @@ def load_aliases(path):
                 if raw:alias[normalize_name(raw)].add(canonical)
     return {k:frozenset(v) for k,v in alias.items()}
 
-def load_genbank_csv(path,aliases,reference):
+def load_genbank_csv(path, aliases, reference):
+    """Load complete and split locus annotations, resolving ONE gene per locus.
+
+    part_complete: complete, part 1/2, part 2/2, etc. Split pieces are
+    grouped by accession/organism/gene/locus tag (not merely gene name).
+    Segment intervals are 0-based half-open and ordered in file part order,
+    which follows the reference-forward circular sequence. This also
+    supports non-contiguous three-part loci without capturing intergenic DNA.
+    """
     by_species=collections.defaultdict(list);unmapped=[];invalid=[];resolution=[]
-    groups=collections.defaultdict(list)
+    grouped=collections.defaultdict(list)
+    part_re=re.compile(r"^part\s+(\d+)/(\d+)$",re.I)
     with open(path,newline="",encoding="utf-8-sig") as inp:
         reader=csv.DictReader(inp)
-        if not {"start","end","strand"}.issubset(reader.fieldnames or []):
+        fields=set(reader.fieldnames or [])
+        if not {"start","end","strand"}.issubset(fields):
             raise ValueError("GenBank annotations require start,end,strand")
-        if not ({"Organism","organism","species"} & set(reader.fieldnames or [])):
-            raise ValueError("GenBank annotations require Organism/organism/species")
+        if not ({"Organism","organism","species"} & fields):
+            raise ValueError("GenBank annotations require organism column")
         for idx,row in enumerate(reader,2):
             species=row.get("Organism") or row.get("organism") or row.get("species") or ""
-            species_key=base.norm(species)
-            if not species_key:invalid.append((idx,"missing species"));continue
+            key=base.norm(species)
+            if not key:invalid.append((idx,"missing species"));continue
             hits=go.candidates(row,aliases)
             if not hits:
                 unmapped.append((idx,species,row.get("Gene","")));continue
-            try:start,end=int(row["start"]),int(row["end"])
+            try:
+                start,end=int(row["start"]),int(row["end"])
             except (ValueError,TypeError):
                 invalid.append((idx,"invalid coordinates"));continue
             strand=(row.get("strand") or "").strip()
-            if strand not in ("+","-"):
-                invalid.append((idx,"invalid strand"));continue
-            groups[species_key].append((hits,start,end,strand,row.get("acc",""),idx,species))
-    for species_key,entries in groups.items():
+            if strand not in ("+","-") or not (1<=start<=end):
+                invalid.append((idx,"invalid strand or interval"));continue
+            part=(row.get("part_complete") or "complete").strip().lower()
+            if part=="complete":
+                number,total=1,1
+                # Preserve independent same-named complete loci as separate
+                # candidate features for pick_features() ambiguity checks.
+                gid=("complete",idx)
+            else:
+                m=part_re.fullmatch(part)
+                if not m:
+                    invalid.append((idx,"invalid part_complete"));continue
+                number,total=map(int,m.groups())
+                if not (1<=number<=total and total>1):
+                    invalid.append((idx,"invalid segment index"));continue
+                locus=(row.get("G_locus_tag") or "").strip()
+                if not locus or locus=="???":
+                    # Some valid split features lack locus IDs. Prefer the
+                    # explicit source label but retain the accessions.
+                    locus=row.get("Gene") or row.get("alt_name") or ""
+                gid=("split",locus)
+            groupkey=(key,row.get("acc",""),gid)
+            grouped[groupkey].append((hits,start,end,strand,idx,species,number,total,row))
+    entries_by_species=collections.defaultdict(list)
+    for (species_key,acc,gid),pieces in grouped.items():
+        pieces.sort(key=lambda x:x[6])
+        total=pieces[0][7]
+        if (len(pieces)!=total or
+            [p[6] for p in pieces]!=list(range(1,total+1)) or
+            len({p[7] for p in pieces})!=1 or
+            len({p[3] for p in pieces})!=1 or
+            len({frozenset(p[0]) for p in pieces})!=1):
+            invalid.extend((p[4],"incomplete_or_conflicting_split_locus") for p in pieces)
+            continue
+        if total>1:
+            lengths=[p[2]-p[1]+1 for p in pieces]
+            stated={p[8].get("full_len","") for p in pieces if p[8].get("full_len")}
+            if len(stated)>1 or (stated and int(next(iter(stated)))!=sum(lengths)):
+                invalid.extend((p[4],"split_full_len_mismatch") for p in pieces)
+                continue
+        first=pieces[0]
+        # Keep source genomic segments separately for extraction.
+        segments=tuple((p[1]-1,p[2]) for p in pieces) if total>1 else ()
+        # Padded processing uses a single anchor for gene ordering; split
+        # sequence extraction must use segments, not this virtual end.
+        a=first[1]-1
+        b=a+sum(p[2]-p[1]+1 for p in pieces)
+        entries_by_species[species_key].append((
+            first[0],a,b,first[3],acc,first[4],first[5],segments
+        ))
+    for species_key,entries in entries_by_species.items():
         accessions={e[4] for e in entries if e[4]}
         if len(accessions)>1:
             invalid.extend((e[5],"multiple_accessions") for e in entries)
@@ -78,10 +136,14 @@ def load_genbank_csv(path,aliases,reference):
             e=entries[detail["index"]]
             resolution.append((species_key,e[6],e[5],detail["candidates"],
                                detail["status"],detail["assigned"],
-                               detail.get("supported",""),detail.get("n_best_assignments","")))
+                               detail.get("supported",""),
+                               detail.get("n_best_assignments","")))
         for e,gene in zip(entries,resolved):
             if gene is not None:
-                by_species[species_key].append((gene,e[1],e[2],e[3],e[4],e[5]))
+                # Old consumer accepts 6 fields; segment metadata is a
+                # seventh optional item only for the new parser.
+                by_species[species_key].append(
+                    (gene,e[1]+1,e[2],e[3],e[4],e[5],e[7]))
     return by_species,unmapped,invalid,resolution
 
 def canonical_mitos_trna(raw):
@@ -133,16 +195,22 @@ def build_feature_sets(rank,fa,gb,trnas,mitos_paths,strict=False):
         key=base.norm(name);L=len(seq)
         if key=="homosapiens":continue
         gb_features=[]
-        for gene,start,end,strand,accession,idx in gb.get(key,[]):
+        for gene,start,end,strand,accession,idx,segments in gb.get(key,[]):
             if gene not in base.EXPECTED:continue
-            if start<1 or end<1 or start>L or end>L:
-                audit.append((rank,name,gene,"genbank","invalid_coordinates",accession,idx))
-                continue
-            a=start-1;b=end if end>=start else end+L
-            if b<=a or b-a>L:
+            a=start-1
+            # end is a virtual length anchor for split genes. Validate
+            # each physical segment independently against the species FASTA.
+            if segments:
+                if any(not (0<=x<y<=L) for x,y in segments):
+                    audit.append((rank,name,gene,"genbank","invalid_segments",accession,idx))
+                    continue
+                b=a+sum(y-x for x,y in segments)
+            else:
+                b=end if end>=start else end+L
+            if not (0<=a<L and a<b and b-a<=L):
                 audit.append((rank,name,gene,"genbank","invalid_interval",accession,idx))
                 continue
-            gb_features.append(base.Feature(gene,a,b,strand))
+            gb_features.append(base.Feature(gene,a,b,strand,segments))
         chosen_gb,amb_gb=base.pick_features(gb_features,L)
         chosen_trnas,amb_trnas=base.pick_features(trnas.get(key,[]),L)
         chosen_trnas={g:f for g,f in chosen_trnas.items() if g in base.TRNA}
@@ -193,7 +261,7 @@ def build_feature_sets(rank,fa,gb,trnas,mitos_paths,strict=False):
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--genbank-annotations",required=True,
+    p.add_argument("--genbank-annotations",default="data/kingdom_genbank_annotations_split_new.csv",
                    help="Export the kingdom_genes_v2 sheet as CSV with Organism/Gene/start/end/strand")
     p.add_argument("--gene-aliases",required=True,
                    help="genefiltfinal5_2026_09_24.csv synonym table")
@@ -202,7 +270,7 @@ def main():
     p.add_argument("--mitos2-summary",default="data/mitos2_species_summary.tsv")
     p.add_argument("--human-fasta",default="data/Humans_mtdna.fasta")
     p.add_argument("--human-genbank",default="data/sequence.gb")
-    p.add_argument("--output-dir",default="block_results_genbank_trnascan_mitos_fallback_v2")
+    p.add_argument("--output-dir",default="block_results_genbank_trnascan_mitos_fallback_split_v3")
     p.add_argument("--ranks",nargs="+",default=["class"])
     p.add_argument("--approaches",nargs="+",choices=["gene_only","pad50","pad100"],
                    default=["gene_only","pad50","pad100"])
