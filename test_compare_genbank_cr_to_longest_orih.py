@@ -50,9 +50,30 @@ def test_subregion_not_considered_full():
     assert deduplicate([r])=={}
 
 
+def test_expanded_genbank_vocabulary():
+    from compare_genbank_cr_to_longest_orih import deduplicate
+    def entry(note, loc, source="misc_feature"):
+        return dict(species="speciesx", acc="NC_TEST", source=source,
+                    note=note, intervals=[loc], cr_label="CR_unspecified",
+                    classification="expanded_candidate")
+    regions=deduplicate([
+        entry("contral region", (1, 100)),
+        entry("AT-loop", (200, 300)),
+        entry("non-coding region", (400, 500)),
+        entry("control region CSB-1", (600, 620)),
+        entry("remnant control region", (700, 720)),
+        entry("origin of replication", (800, 850)),
+    ])
+    assert len(regions["speciesx"]) == 3
+    assert {r["vocabulary_tier"] for r in regions["speciesx"]} == {
+        "tier1", "tier2", "tier2_review"
+    }
+
+
 if __name__=="__main__":
     test_distinct_regions_do_not_combine()
     test_exact_dedup_and_separate_cr()
     test_circular_containment()
     test_subregion_not_considered_full()
+    test_expanded_genbank_vocabulary()
     print("PASS strict 100% OriH containment tests")
