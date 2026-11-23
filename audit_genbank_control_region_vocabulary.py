@@ -28,7 +28,7 @@ EXPLICIT = r"\b(?:control|contral|contorl|conrtol|cntrol|conrol)[-_ ]*region(?:[
 AT_RICH = (r"\b(?:A\s*[+&/\-]\s*T|A\s*T|AT)[-_ ]*rich\b|"
            r"\bAT[-_ ]?(?:loop|region)\b|\bAT_rich\b|"
            r"\bA[+&/]T[-_ ]?region\b|\bA[-_ ]T[-_ ]rich\b|\bA[-_ ]T[-_ ]region\b")
-NONCODING = r"\b(?:major|long|large)[-_ ]+(?:non[-_ ]?coding|intergenic)(?:[-_ ]+region)?\b"
+NONCODING = r"\b(?:(?:major|long|large)[-_ ]+(?:non[-_ ]?coding|intergenic)(?:[-_ ]+region)?|non[-_ ]?coding[-_ ]+region|intergenic[-_ ]+region|NCR)\b"
 ORIGIN = (r"\b(?:origin of replication|replication origin|"
           r"heavy strand origin|Ori[-_ ]?[HL]|OH|OL)\b")
 BARE_CR = r"(?<![A-Z0-9])CR[-_ ]?(?:1|2|I|II)(?![A-Z0-9])"
