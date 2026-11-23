@@ -292,6 +292,21 @@ def main():
     reference=[(g,reference_features[g].strand) for g in sorted(reference_features,key=lambda g:reference_features[g].start)]
     gb,unmapped,invalid,resolution=load_genbank_csv(a.genbank_annotations,aliases,reference)
     if not gb:raise ValueError("No recognized GenBank annotation rows. Check aliases and Organism names.")
+    split_rows=[]
+    for organism,items in gb.items():
+        for gene,start,end,strand,acc,row,segments in items:
+            if segments:
+                split_rows.append((
+                    organism,gene,acc,strand,len(segments),
+                    ";".join(f"{a+1}-{b}" for a,b in segments),
+                    sum(b-a for a,b in segments),row
+                ))
+    outroot.mkdir(parents=True,exist_ok=True)
+    base.write_tsv(outroot/"split_loci_qc.tsv",split_rows,[
+        "species","gene","accession","strand","n_segments",
+        "segments_1based_inclusive","total_gene_bp","first_source_row"
+    ])
+    LOG.info("Split GenBank features retained after gene-name resolution: %d",len(split_rows))
     trnas=base.read_trnas(a.trnascan_csv)
     with open(a.mitos2_summary,newline="",encoding="utf-8-sig") as fh:
         mitos={base.norm(r["species"]):r["result_gff"] for r in csv.DictReader(fh,delimiter="\t")
