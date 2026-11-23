@@ -10,7 +10,7 @@ set -euo pipefail
 cd "${SLURM_SUBMIT_DIR}"
 export OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 MPLBACKEND=Agg
 PYTHON="${PYTHON:-/vast/palmer/home.mccleary/njl27/shared/mt_calling_inputs/required_software/hail-conda/bin/python}"
-ROOT="block_results_genbank_trnascan_mitos_fallback_v2/pad100"
+ROOT="block_results_genbank_trnascan_mitos_fallback_split_v3/pad100"
 for METRIC in CI_MSA CI_callable; do
   "${PYTHON}" compare_overlap_aware_four_way_roc.py \
     --results-root "${ROOT}" \
