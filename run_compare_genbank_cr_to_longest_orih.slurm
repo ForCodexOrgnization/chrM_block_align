@@ -17,3 +17,7 @@ PYTHON="${PYTHON:-/vast/palmer/home.mccleary/njl27/shared/mt_calling_inputs/requ
   --mitos-summary data/mitos2_species_summary.tsv \
   --ranks kingdom phylum subphylum superclass class superorder order suborder infraorder parvorder \
   --out-dir longest_all_gene_desert_qc/genbank_CR_comparison
+
+"${PYTHON}" diagnose_genbank_cr_orih_containment.py \
+  --species-tsv longest_all_gene_desert_qc/genbank_CR_comparison/species_100pct_containment.tsv \
+  --out-dir longest_all_gene_desert_qc/genbank_CR_comparison
