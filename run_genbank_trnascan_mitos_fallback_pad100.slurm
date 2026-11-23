@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=GB_TRI_FALL200
+#SBATCH --job-name=GB_SPLIT_PAD100
 #SBATCH --partition=day
 #SBATCH --array=0-9%2
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=96G
 #SBATCH --time=24:00:00
-#SBATCH --output=logs/gb_trifall_v2_pad100_%A_%a.out
+#SBATCH --output=logs/gb_split_v3_pad100_%A_%a.out
 #SBATCH --error=logs/gb_trifall_v2_pad100_%A_%a.err
 
 set -euo pipefail
@@ -21,7 +21,7 @@ RANKS=(
 )
 RANK="${RANKS[${SLURM_ARRAY_TASK_ID}]}"
 
-OUT="block_results_genbank_trnascan_mitos_fallback_v2"
+OUT="block_results_genbank_trnascan_mitos_fallback_split_v3"
 RDIR="${OUT}/pad100/${RANK}"
 
 # Keep existing completed results intact.
@@ -31,7 +31,7 @@ if [[ -f "${RDIR}/${RANK}_stitched_aln.fasta" ]]; then
 fi
 
 "${PYTHON}" run_genbank_trnascan_mitos_fallback.py \
-  --genbank-annotations data/kingdom_genes_v2.csv \
+  --genbank-annotations data/kingdom_genbank_annotations_split_new.csv \
   --gene-aliases data/genefiltfinal5_2026_09_24.csv \
   --trnascan-csv data/consolidated_trnascan-2.csv \
   --mitos2-summary data/mitos2_species_summary.tsv \
