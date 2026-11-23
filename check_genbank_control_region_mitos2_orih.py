@@ -205,15 +205,12 @@ def compare(dloop, misc, mitos_summary, outdir, expanded=False):
 
 
 def main():
-    p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--dloop", default="data/kingdom_genbank_annotations_split_new.csv")
-    p.add_argument("--misc", default="data/genbank_misc_ftr.csv")
-    p.add_argument("--mitos-summary", default="data/mitos2_species_summary.tsv")
-    p.add_argument("--out-dir", default="control_region_orih_qc")
-    p.add_argument("--expanded", action="store_true",
-                   help="Also include provisional AT-rich / long non-coding regions")
-    a = p.parse_args()
-    compare(a.dloop, a.misc, a.mitos_summary, a.out_dir, a.expanded)
+    """Default CLI now runs region-level + species-level QC.
+
+    Legacy helpers above remain importable for backward compatibility.
+    """
+    from control_region_orih_region_level import main as region_main
+    region_main()
 
 
 if __name__ == "__main__":
