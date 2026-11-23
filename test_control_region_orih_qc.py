@@ -24,7 +24,7 @@ def test_small_end_to_end():
             w=csv.DictWriter(fh,fieldnames=["class","Organism","start","end","acc"])
             w.writeheader()
             w.writerow(dict(class_="") if False else {"class":"D-loop","Organism":"Species one","start":"900","end":"1000","acc":"AC1"})
-            w.writerow({"class":"D-loop","Organism":"Species one","start":"1","end":"50","acc":"AC1"})
+            w.writerow({"class":"D-loop","Organism":"Species one","start":"100","end":"150","acc":"AC1"})
         m=root/"misc.csv"
         with m.open("w",newline="") as fh:
             w=csv.DictWriter(fh,fieldnames=["misc_kind","Organism","Note","location","dloop_like","acc"])
