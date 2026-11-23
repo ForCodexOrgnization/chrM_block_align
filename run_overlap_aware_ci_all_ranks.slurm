@@ -11,7 +11,7 @@ set -euo pipefail
 
 cd "${SLURM_SUBMIT_DIR}"
 PYTHON="${PYTHON:-python3}"
-SOURCE_ROOT="${SOURCE_ROOT:-block_results_genbank_trnascan_mitos_fallback_v2/pad100}"
+SOURCE_ROOT="${SOURCE_ROOT:-block_results_genbank_trnascan_mitos_fallback_split_v3/pad100}"
 RANKS=(kingdom phylum subphylum superclass class superorder order suborder infraorder parvorder)
 RANK="${RANKS[${SLURM_ARRAY_TASK_ID}]}"
 echo "Scoring existing tRNAscan > GenBank > MITOS2 fallback pad100 alignment: ${SOURCE_ROOT}/${RANK}"
