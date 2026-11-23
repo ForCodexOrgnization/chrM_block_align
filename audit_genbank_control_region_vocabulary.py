@@ -24,7 +24,7 @@ MOTIF = (r"\b(?:CSB[- _]?[0-9IVX]+|conserved sequence block|"
          r"coreTAS|TAS|termination.associated.sequence|SSB[- _]?[0-9IVX]+|"
          r"CoRe|control region conserved region|control region C.rich sequence|"
          r"C.rich sequence|mtTERM binding site)\b")
-EXPLICIT = r"\b(?:control|contral|contorl|conrtol|cntrol|conrol|conrol)[-_ ]+region\b|\bD[-_ ]?loop\b"
+EXPLICIT = r"\b(?:control|contral|contorl|conrtol|cntrol|conrol)[-_ ]*region(?:[12]|\b)|\bD[-_ ]?loop\b"
 AT_RICH = (r"\b(?:A\s*[+&/\-]\s*T|A\s*T|AT)[-_ ]*rich\b|"
            r"\bAT[-_ ]?(?:loop|region)\b|\bAT_rich\b|"
            r"\bA[+&/]T[-_ ]?region\b|\bA[-_ ]T[-_ ]rich\b|\bA[-_ ]T[-_ ]region\b")
