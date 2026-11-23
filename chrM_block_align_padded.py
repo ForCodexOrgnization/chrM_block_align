@@ -3,7 +3,7 @@
 import argparse,csv,json,logging
 from pathlib import Path
 from collections import defaultdict
-from chrM_block_align import Feature,EXPECTED,fasta,save_fasta,norm,rc,circular,read_gff,read_trnas,pick_features,align,write_tsv
+from chrM_block_align import Feature,EXPECTED,fasta,save_fasta,norm,rc,circular,read_gff,read_trnas,pick_features,align,write_tsv,extract_feature
 from human_genbank import load_human_genbank
 
 def ordered(fs,L):return sorted(fs,key=lambda g:fs[g].start%L)
@@ -47,7 +47,9 @@ def run(rank,fa,gffs,trnas,args):
             if g not in fs:continue
             f=fs[g];left,right=neighbours(fs,g,genes,order,len(seq))
             if k=="homosapiens":left=right=True
-            raw=circular(seq,f.start-(args.padding if left else 0),f.end+(args.padding if right else 0))
+            raw=extract_feature(seq,f,
+                                args.padding if left else 0,
+                                args.padding if right else 0)
             records.append((k,rc(raw) if f.strand=="-" else raw))
             allowed[k]=(left,right)
             flankqc.append((g,k,int(left),int(right)))
@@ -89,8 +91,14 @@ def run(rank,fa,gffs,trnas,args):
             if phys[(i+1)%len(phys)]!=g:continue
             x,y=fs[prev],fs[g]
             if x.strand!=a.strand or y.strand!=b.strand:continue
-            gap=(y.start-x.end)%len(seq)
-            raw=circular(human,start,end) if k=="homosapiens" else circular(seq,x.end,x.end+gap)
+            # Do not infer an intergenic span from a virtual split-gene
+            # end: use the last physical segment endpoint instead.
+            if x.segments:
+                prev_end=x.segments[-1][1] % len(seq)
+            else:
+                prev_end=x.end % len(seq)
+            gap=(y.start-prev_end)%len(seq)
+            raw=circular(human,start,end) if k=="homosapiens" else circular(seq,prev_end,prev_end+gap)
             if k!="homosapiens" and len(raw)>args.max_flank_bp:continue
             records.append((k,raw))
         if not records or records[0][0]!="homosapiens":raise ValueError("No human IGR")
