@@ -133,7 +133,7 @@ def plot_overlap(d,rank,metric,out):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--old-csv",default="data/2026_10_10_mito_cons_anns_main.csv")
-    p.add_argument("--results-root",default="block_results_genbank_trnascan_mitos_fallback_v2/pad100")
+    p.add_argument("--results-root",default="block_results_genbank_trnascan_mitos_fallback_split_v3/pad100")
     p.add_argument("--metrics",nargs="+",choices=METRICS,default=list(METRICS))
     p.add_argument("--ranks",nargs="+",choices=RANKS,default=list(RANKS))
     p.add_argument("--old-zero-is-missing",action="store_true",
