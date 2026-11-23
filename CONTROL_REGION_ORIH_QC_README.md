@@ -54,3 +54,18 @@ Full and putative control regions are used for the primary OriH overlap. Short f
 Run tests with `python3 test_control_region_orih_region_level.py`. The legacy parser helpers remain importable, but `check_genbank_control_region_mitos2_orih.py` now dispatches to the region-level CLI. Previous strict/expanded output directories are left unchanged.
 
 **Limitations:** Repeated or coextensive annotations from D-loop and misc_feature can describe the same underlying region; region counts are *annotation counts*, not automatically de-duplicated biological copies. Identify unique CR copies by accession plus interval and supporting locus annotations before interpreting duplication as biological evidence. Matching GenBank/MITOS2 assemblies and coordinate origins remains a prerequisite for biological overlap interpretation.
+
+## Deduplication and assembly identity QC (latest)
+
+The region-level script now merges identical coordinate sets only when **species and GenBank accession** also match. All annotation sources/notes remain in `region_overlap.csv` (`n_annotations_merged`). CR1 and CR2 with different physical intervals stay independent. `dedup_label_conflicts.csv` records incompatible copy labels at the same interval. `summary.json` gives raw versus unique-region counts.
+
+Coordinate provenance is **fail-closed by default**: without verified GenBank/MITOS2 FASTA identity, region overlap is blank and status is `coordinate_unverified`. Provide optional `--assembly-manifest path/to/manifest.tsv` with TAB-delimited columns:
+
+```text
+species	genbank_accession	genbank_fasta	mitos_fasta
+Species name	NC_XXXXX.1	/full/path/genbank.fasta	/full/path/mitos_input.fasta
+```
+
+Both FASTA files must contain **exactly one mitochondrial sequence**. The two sequence strings must match exactly, including coordinate start and strand, to be marked `identical`. Distinct statuses distinguish rotated, reverse-complemented, length-mismatched, and other mismatched sequences. No automatic coordinate remapping is attempted.
+
+For a **provisional exploratory rerun** reproducing the original overlap percentages when an assembly manifest is not available, pass `--allow-unverified-coordinates`. These numbers must NOT be interpreted as accession-verified. The separate 10-rank longest-vs-GenBank plotting workflow produces provisional coordinates until independently verified.
