@@ -53,3 +53,11 @@ python3 compare_genbank_cr_to_longest_orih.py \
 The code reuses the existing **parent OriH GFF filters**, legacy circular gene-desert interval conventions, and ten-rank species cohorts from `compare_pairwise_cr_to_longest_intervals.py`.
 
 These plots measure recovery of MITOS2 OriH predictions; they do **not** establish which region is an active replication origin.
+
+## Updated plotting scope and labels
+
+The orange GenBank CR category now includes **all annotation candidates through Tier 2 review**: explicit D-loop/control region (including typo variants and numbered CRs), Tier 1 review abbreviations, AT-rich alternatives and Tier 2 review NCR/noncoding candidates. It **does not include Tier 3 longest gene-free intervals**, short CSB/TAS/SSB motifs, remnants, or standalone replication origins. This is a broader exploratory annotation set, not proof that every Tier 2 review region is a functional control region.
+
+The two charts use explicit Y-axis denominator labels: `All species (%)` and `MITOS2 OriH-predicted species (%)`. Their title/subtitle and legend are placed in separate top bands to prevent overlap.
+
+**Re-run the complete comparison**, not just plotting an old `rank_100pct_containment.tsv`, because adding Tier 2 candidates changes the counted containment. Run `python3 test_compare_genbank_cr_to_longest_orih.py` followed by `sbatch run_compare_genbank_cr_to_longest_orih.slurm`.
