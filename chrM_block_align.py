@@ -60,6 +60,24 @@ class Feature:
     start:int # 0-based, may extend across circular origin
     end:int # exclusive
     strand:str
+    segments:tuple=() # Optional ordered 0-based half-open genomic intervals
+
+def feature_positions(f,L):
+    """Genomic-forward coordinate list; split segments retain supplied order."""
+    if f.segments:
+        return [i%L for a,b in f.segments for i in range(a,b)]
+    return [i%L for i in range(f.start,f.end)]
+
+def extract_feature(seq,f,left_pad=0,right_pad=0):
+    """Join split regions, then add only terminal flanks (no internal gaps)."""
+    L=len(seq)
+    positions=feature_positions(f,L)
+    if not positions:
+        raise ValueError("Empty feature "+f.gene)
+    before=[(positions[0]-i)%L for i in range(left_pad,0,-1)]
+    after=[(positions[-1]+i)%L for i in range(1,right_pad+1)]
+    return "".join(seq[i] for i in before+positions+after)
+
 def read_gff(path,length):
     features=[]
     with open(path) as inp:
@@ -93,10 +111,11 @@ def pick_features(items,L):
     for gene,group in by.items():
         loci=[]
         for f in group:
-            fs={i%L for i in range(f.start,f.end)}
-            matching=[g for g in loci if g.strand==f.strand and len(fs & {i%L for i in range(g.start,g.end)})>=.8*min(len(fs),g.end-g.start)]
+            fs=set(feature_positions(f,L))
+            matching=[g for g in loci if g.strand==f.strand and
+                      len(fs & set(feature_positions(g,L)))>=.8*min(len(fs),len(feature_positions(g,L)))]
             if matching:
-                if f.end-f.start>matching[0].end-matching[0].start:loci[loci.index(matching[0])]=f
+                if len(fs)>len(feature_positions(matching[0],L)):loci[loci.index(matching[0])]=f
             else:loci.append(f)
         if len(loci)==1:selected[gene]=loci[0]
         else:ambiguous[gene]=len(loci)
@@ -232,7 +251,7 @@ def run(rank,fa,gffs,trnas,args):
             seq=samples[key][1];features=samples[key][2]
             f=features.get(gene)
             if f:
-                s=circular(seq,f.start,f.end)
+                s=extract_feature(seq,f)
                 core.append((key,rc(s) if f.strand=="-" else s))
         aligned=align(core,intermediate,f"{i:02d}_{gene}_core",args.threads,args.mafft)
         f=human_features[gene]
