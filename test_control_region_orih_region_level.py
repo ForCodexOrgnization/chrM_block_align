@@ -47,7 +47,7 @@ def test_region_level():
             {"species":"Species A","result_gff":"test.gff"},
             {"species":"Species B","result_gff":"test.gff"}
         ],"\t")
-        summary=analyze(d,misc,mitos,root/"out")
+        summary=analyze(d,misc,mitos,root/"out",allow_unverified=True)
         assert summary["n_species_with_both_cr1_cr2"]==1
         assert summary["n_invalid_split_dloop"]==0
         with open(root/"out"/"region_overlap.csv") as fh:
